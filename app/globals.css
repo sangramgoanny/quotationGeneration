@@ -1,0 +1,75 @@
+@import "tailwindcss";
+.section {
+  padding: 120px 10vw;
+}
+
+.hero-title {
+  font-size: 72px;
+  letter-spacing: 0.35em;
+  font-weight: 300;
+}
+
+.hero-subtitle {
+  margin-top: 20px;
+  font-size: 14px;
+  letter-spacing: 0.25em;
+}
+
+.about-text {
+  font-size: 28px;
+  max-width: 900px;
+  line-height: 1.4;
+  opacity: 0.85;
+}
+
+.section-title {
+  font-size: 14px;
+  letter-spacing: 0.3em;
+  margin-bottom: 40px;
+  opacity: 0.6;
+}
+
+.services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 40px;
+}
+
+.service-card {
+  padding: 40px;
+  border: 1px solid rgba(255,255,255,0.1);
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  transition: all 0.4s ease;
+}
+
+.service-card:hover {
+  background: rgba(255,255,255,0.05);
+  transform: translateY(-6px);
+}
+
+.philosophy {
+  text-align: center;
+}
+
+.philosophy-text {
+  font-size: 48px;
+  font-weight: 300;
+  letter-spacing: 0.08em;
+}
+
+.footer {
+  padding: 60px;
+  text-align: center;
+  font-size: 12px;
+  opacity: 0.5;
+}
+
+/* Pro UI/UX - Respect user motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,8 @@
+const loadRoboto = async (doc) => {
+  const response = await fetch("/fonts/Roboto-Regular.ttf");
+  const font = await response.arrayBuffer();
+
+  doc.addFileToVFS("Roboto-Regular.ttf", font);
+  doc.addFont("Roboto-Regular.ttf", "Roboto", "normal");
+  doc.setFont("Roboto");
+};

@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { jsPDF } from "jspdf";
-//import csss in global.css
+
 
 
 {/* ------------------------------------------------------------- */}

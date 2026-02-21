@@ -1,5 +1,5 @@
 import QuotationGenerator from "@/components/QuotationGenerator";
-import "./globals.css";
+
 
 export default function QuotationPage() {
   return (

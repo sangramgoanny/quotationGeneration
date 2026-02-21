@@ -1,5 +1,4 @@
 import ContractGenerator from "../../../components/ContractGenerator";
-import "../../globals.css";
 
 export default function ContractPage() {
   return (

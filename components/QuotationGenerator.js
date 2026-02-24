@@ -58,7 +58,15 @@ function AgreementHeader({
   return (
     <div className="border p-6 rounded bg-gray-50 space-y-4 shadow-sm">
 
-      <h3 className="text-xl font-bold">Quotation Information</h3>
+        {/* HEADER */}
+        <div className="text-center space-y-2">
+        <h1 className="text-3xl font-bold tracking-wide">
+          Professional Quotation Builder
+        </h1>
+        <p className="text-gray-500 text-sm">
+          Create structured, branded quotations with dynamic pricing & scope.
+        </p>
+      </div>
 
       <div className="grid grid-cols-2 gap-4">
 
@@ -604,25 +612,22 @@ export default function ContractGenerator() {
   // =============================
 
   return (
-    <div className="max-w-6xl mx-auto bg-white p-8 rounded shadow space-y-8">
+    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 py-6 px-4 sm:px-6">
 
-      <h2 className="text-xl font-bold">Quotation Generator</h2>
+  <div className="max-w-6xl mx-auto bg-white p-6 sm:p-10 rounded-2xl shadow-2xl space-y-12">
 
-      {/* <input
-                placeholder="Client Company Name"
-                className="border p-3 w-full rounded"
-                onChange={(e) =>
-                    setContract({ ...contract, clientName: e.target.value })
-                }
-            />
+    {/* PAGE TITLE */}
+    <div className="text-center space-y-2">
+      <h2 className="text-2xl sm:text-3xl font-bold tracking-wide text-gray-800">
+        Quotation Generator
+      </h2>
+      <p className="text-gray-500 text-sm sm:text-base">
+        Create professional, structured and branded quotations
+      </p>
+    </div>
 
-            <input
-                placeholder="Total Contract Amount"
-                className="border p-3 w-full rounded"
-                onChange={(e) =>
-                    setContract({ ...contract, totalAmount: e.target.value })
-                }
-            /> */}
+    {/* HEADER SECTION */}
+    <div className="bg-gray-50 border rounded-xl p-6 sm:p-8 shadow-sm">
       <AgreementHeader
         clientName={contract.clientName}
         onClientChange={(value) =>
@@ -638,153 +643,146 @@ export default function ContractGenerator() {
           setContract({ ...contract, quotationSerial: value })
         }
       />
-      {/* SUBJECT SECTION */}
+    </div>
 
-      <div>
-        <h3 className="font-semibold text-lg">Subject</h3>
-        <input
-          type="text"
-          value={contract.subject}
-          onChange={(e) =>
-            setContract({ ...contract, subject: e.target.value })
-          }
-          className="border p-3 w-full rounded"
-        />
-      </div>
+    {/* SUBJECT */}
+    <div className="space-y-3">
+      <h3 className="text-lg sm:text-xl font-semibold border-b pb-2">
+        Subject
+      </h3>
+      <input
+        type="text"
+        value={contract.subject}
+        onChange={(e) =>
+          setContract({ ...contract, subject: e.target.value })
+        }
+        className="border p-3 w-full rounded-lg focus:ring-2 focus:ring-black"
+      />
+    </div>
 
-      {/* INTRO PARAGRAPH */}
+    {/* INTRO */}
+    <div className="space-y-3">
+      <h3 className="text-lg sm:text-xl font-semibold border-b pb-2">
+        Introduction / Thank You Paragraph
+      </h3>
+      <textarea
+        value={contract.introParagraph}
+        onChange={(e) =>
+          setContract({ ...contract, introParagraph: e.target.value })
+        }
+        className="border p-3 w-full rounded-lg min-h-[140px] focus:ring-2 focus:ring-black"
+      />
+    </div>
 
-      <div>
-        <h3 className="font-semibold text-lg">
-          Introduction / Thank You Paragraph
-        </h3>
-        <textarea
-          value={contract.introParagraph}
-          onChange={(e) =>
-            setContract({ ...contract, introParagraph: e.target.value })
-          }
-          className="border p-3 w-full rounded min-h-[120px]"
-        />
-      </div>
+    {/* SCOPE */}
+    <div className="space-y-6">
+      <h3 className="text-xl sm:text-2xl font-semibold border-b pb-3">
+        Scope of Work
+      </h3>
 
-      {/* SCOPE SECTION */}
-      <h3 className="font-semibold">Scope of Work</h3>
       {contract.scope.map((service, index) => (
-        <div key={index} className="border p-4 rounded">
+        <div key={index} className="bg-gray-50 border rounded-xl p-4 sm:p-6 shadow-sm space-y-4">
+
           <input
             placeholder="Service Title"
             value={service.title}
             onChange={(e) => updateScopeTitle(index, e.target.value)}
-            className="border p-2 w-full mb-2 rounded"
+            className="border p-3 w-full rounded-lg font-medium"
           />
 
           {service.details.map((detail, dIndex) => (
-            <div key={dIndex} className="flex gap-2 mb-2">
+            <div key={dIndex} className="flex flex-col sm:flex-row gap-3">
               <input
                 placeholder="Detail"
                 value={detail}
                 onChange={(e) =>
                   updateScopeDetail(index, dIndex, e.target.value)
                 }
-                className="border p-2 flex-1 rounded"
+                className="border p-2 flex-1 rounded-lg"
               />
               <button
                 onClick={() => removeScopeDetail(index, dIndex)}
-                className="bg-red-500 text-white px-2 rounded"
+                className="bg-red-500 text-white px-4 py-2 rounded-lg w-full sm:w-auto"
               >
-                X
+                Remove
               </button>
             </div>
           ))}
 
-          <button
-            onClick={() => addScopeDetail(index)}
-            className="bg-blue-500 text-white px-3 py-1 rounded mr-2"
-          >
-            Add Detail
-          </button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <button
+              onClick={() => addScopeDetail(index)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-lg w-full sm:w-auto"
+            >
+              + Add Detail
+            </button>
 
-          <button
-            onClick={() => removeScope(index)}
-            className="bg-red-600 text-white px-3 py-1 rounded"
-          >
-            Remove Service
-          </button>
+            <button
+              onClick={() => removeScope(index)}
+              className="bg-red-600 text-white px-4 py-2 rounded-lg w-full sm:w-auto"
+            >
+              Remove Service
+            </button>
+          </div>
+
         </div>
       ))}
 
       <button
         onClick={addScope}
-        className="bg-green-600 text-white px-4 py-2 rounded"
+        className="bg-green-600 text-white px-6 py-3 rounded-xl w-full sm:w-auto"
       >
-        Add Service
+        + Add New Service
       </button>
+    </div>
 
-      {/* PAYMENT TERMS */}
-      <h3 className="font-semibold">Payment Terms</h3>
+    {/* PAYMENT TERMS */}
+    <div className="space-y-6">
+      <h3 className="text-xl sm:text-2xl font-semibold border-b pb-3">
+        Payment Terms
+      </h3>
+
       {contract.paymentTerms.map((term, index) => (
-        <div key={index} className="flex gap-2">
+        <div key={index} className="flex flex-col sm:flex-row gap-3">
           <input
             value={term}
             onChange={(e) =>
               updateItem("paymentTerms", index, e.target.value)
             }
-            className="border p-2 flex-1 rounded"
+            className="border p-3 flex-1 rounded-lg"
           />
           <button
             onClick={() => removeItem("paymentTerms", index)}
-            className="bg-red-500 text-white px-2 rounded"
+            className="bg-red-500 text-white px-4 py-2 rounded-lg w-full sm:w-auto"
           >
-            X
+            Remove
           </button>
         </div>
       ))}
 
       <button
         onClick={() => addItem("paymentTerms", "")}
-        className="bg-blue-500 text-white px-4 py-2 rounded"
+        className="bg-blue-600 text-white px-6 py-2 rounded-lg w-full sm:w-auto"
       >
-        Add Payment Term
+        + Add Payment Term
       </button>
+    </div>
 
-      {/* TERMS & CONDITIONS */}
-      <h3 className="font-semibold">Terms & Conditions</h3>
-      {contract.termsConditions.map((term, index) => (
-        <div key={index} className="flex gap-2">
-          <input
-            value={term}
-            onChange={(e) =>
-              updateItem("termsConditions", index, e.target.value)
-            }
-            className="border p-2 flex-1 rounded"
-          />
-          <button
-            onClick={() => removeItem("termsConditions", index)}
-            className="bg-red-500 text-white px-2 rounded"
-          >
-            X
-          </button>
-        </div>
-      ))}
+    {/* COMMERCIAL */}
+    <div className="space-y-6">
+      <h3 className="text-xl sm:text-2xl font-semibold border-b pb-3">
+        Commercial of Services
+      </h3>
 
-      <button
-        onClick={() => addItem("termsConditions", "")}
-        className="bg-blue-500 text-white px-4 py-2 rounded"
-      >
-        Add Condition
-      </button>
-
-      {/* PRICING */}
-      <h3 className="font-semibold">Commercial of Services</h3>
       {contract.pricing.map((row, index) => (
-        <div key={index} className="flex gap-2">
+        <div key={index} className="flex flex-col sm:flex-row gap-3">
           <input
             placeholder="Service Description"
             value={row.description}
             onChange={(e) =>
               updatePricing(index, "description", e.target.value)
             }
-            className="border p-2 flex-1 rounded"
+            className="border p-3 flex-1 rounded-lg"
           />
           <input
             placeholder="Cost"
@@ -792,50 +790,46 @@ export default function ContractGenerator() {
             onChange={(e) =>
               updatePricing(index, "cost", e.target.value)
             }
-            className="border p-2 w-40 rounded"
+            className="border p-3 sm:w-40 rounded-lg"
           />
           <button
             onClick={() => removePricingRow(index)}
-            className="bg-red-500 text-white px-2 rounded"
+            className="bg-red-500 text-white px-4 py-2 rounded-lg w-full sm:w-auto"
           >
-            X
+            Remove
           </button>
         </div>
       ))}
 
       <button
         onClick={addPricingRow}
-        className="bg-blue-500 text-white px-4 py-2 rounded"
+        className="bg-blue-600 text-white px-6 py-3 rounded-xl w-full sm:w-auto"
       >
-        Add Pricing Row
+        + Add Pricing Row
       </button>
-      {/* ------------------------------------------------------------- */}
+    </div>
 
-      {/* NOTE */}
+    {/* NOTE */}
+    <div className="bg-gray-50 border rounded-xl p-6 shadow-sm">
       <NoteSection
         value={contract.note}
         onChange={(value) =>
           setContract({ ...contract, note: value })
         }
       />
-      {/* ------------------------------------------------------------- */}
-      <h3 className="font-semibold">Other details if you want add</h3>
-      <textarea
-        className="border p-3 w-full rounded"
-        onChange={(e) =>
-          setContract({ ...contract, websiteCost: e.target.value })
-        }
-      />
-      {/* ------------------------------------------------------------- */}
+    </div>
 
+    {/* GENERATE BUTTON */}
+    <div>
       <button
         onClick={generatePDF}
-        className="bg-black text-white w-full py-3 rounded"
+        className="w-full bg-black text-white py-4 rounded-xl text-lg shadow-lg"
       >
         Generate Quotation PDF
       </button>
-      {/* ------------------------------------------------------------- */}
-
     </div>
+
+  </div>
+</div>
   );
 }

@@ -1,16 +1,35 @@
-import Hero from '@/components/home/Hero'
-import About from '@/components/home/About'
-import Services from '@/components/home/Services'
-import Philosophy from '@/components/home/Philosophy'
-import Footer from '@/components/home/Footer'
-import BottomMenu from '@/components/BottomMenu'
-import QuotationPage from './quotation/page'
-import ContractPage from './quotation/contract/page'
+"use client";
+
+import { i } from "framer-motion/client";
+import { useRouter } from "next/navigation";
+import React from "react";
+
+
 
 export default function Home() {
+  const router = useRouter();
+
   return (
-    <main className="bg-black text-white overflow-x-hidden">
-   <ContractPage />
-    </main>
-  )
+    <div className="min-h-screen flex items-center justify-center bg-gray-100">
+      <div className="bg-white p-10 rounded shadow-md space-y-6 w-[400px] text-center">
+
+        <h1 className="text-2xl font-bold">Select Document Type</h1>
+
+        <button
+          onClick={() => router.push("/quotation")}
+          className="w-full bg-black text-white py-3 rounded"
+        >
+          Create Quotation
+        </button>
+
+        <button
+          onClick={() => router.push("/agreement")}
+          className="w-full bg-gray-800 text-white py-3 rounded"
+        >
+          Create Service Agreement
+        </button>
+
+      </div>
+    </div>
+  );
 }

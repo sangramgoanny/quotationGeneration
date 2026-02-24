@@ -2,103 +2,265 @@
 
 import { useState } from "react";
 import { jsPDF } from "jspdf";
+import { useEffect } from "react";
 
 
-
-{/* ------------------------------------------------------------- */}
+{/* ------------------------------------------------------------- */ }
 
 function NoteSection({ value, onChange }) {
     return (
-      <div>
-        <h3 className="font-semibold">Note</h3>
-        <textarea
-          className="border p-3 w-full rounded min-h-[120px]"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-        />
-      </div>
+        <div>
+            <h3 className="font-semibold">Note</h3>
+            <textarea
+                className="border p-3 w-full rounded min-h-[120px]"
+                value={value}
+                onChange={(e) => onChange(e.target.value)}
+            />
+        </div>
     );
-  }
-{/* ------------------------------------------------------------- */}
+}
+{/* ------------------------------------------------------------- */ }
+function AgreementHeader({
+    clientName,
+    onClientChange,
+    date,
+    onDateChange,
+    agreementNumber,
+    quotationNumber,
+    onQuotationChange,
+    quotationSerial
+}) {
+    const formatDate = (dateString) => {
+        if (!dateString) return "";
+        const options = { day: "2-digit", month: "short", year: "numeric" };
+        return new Date(dateString).toLocaleDateString("en-GB", options);
+    };
+    const generateQuotationNumber = (clientName, serial) => {
+        const companyShort = "GO"; // Goanny short
 
+        const clientShort = clientName
+            ? clientName.replace(/[^A-Za-z]/g, "").substring(0, 2).toUpperCase()
+            : "CL";
+
+        const today = new Date();
+        const datePart =
+            String(today.getDate()).padStart(2, "0") +
+            String(today.getMonth() + 1).padStart(2, "0") +
+            today.getFullYear();
+
+        const serialPart = serial
+            ? String(serial).padStart(3, "0")
+            : "000";
+
+        return `${companyShort}${clientShort}${datePart}${serialPart}`;
+    };
+
+    return (
+        <div className="border p-6 rounded bg-gray-50 space-y-4">
+
+            <h3 className="text-lg font-bold">Agreement Information</h3>
+
+            <div className="grid grid-cols-2 gap-4">
+
+                <div>
+                    <label className="font-medium">Agreement No:</label>
+                    <div className="border p-2 rounded bg-white text-black">
+                        {agreementNumber}
+                    </div>
+                </div>
+
+                <div>
+                    <label className="font-medium">Enter today Quote Number:</label>
+                    <input
+                        type="number"
+                        value={quotationSerial}
+                        onChange={(e) =>
+                            onQuotationChange(e.target.value.replace(/\D/g, ""))
+                        }
+                        className="border p-2 rounded w-full text-black"
+                        placeholder="Enter number only"
+                    />
+                </div>
+
+                <div className="mt-2 font-semibold">
+                    Quotation No:{" "}
+                    {generateQuotationNumber(clientName, quotationSerial)}
+                </div>
+
+                <div>
+                    <label className="font-medium">Date:</label>
+                    <input
+                        type="date"
+                        value={date}
+                        onChange={(e) => onDateChange(e.target.value)}
+                        className="border p-2 rounded w-full text-black"
+                    />
+                </div>
+
+                <div>
+                    <label className="font-medium">Client Name:</label>
+                    <input
+                        type="text"
+                        value={clientName}
+                        onChange={(e) => onClientChange(e.target.value)}
+                        className="border p-2 rounded w-full text-black"
+                        placeholder="Client Company Name"
+                    />
+                </div>
+            </div>
+
+            <div className="pt-4 space-y-1">
+                <p className="font-medium">This Agreement is made between:</p>
+                <p><strong>Goanny Technologies Pvt Ltd</strong></p>
+                <p>And <strong>{clientName || "Client Company Name"}</strong></p>
+                <p>Date: {formatDate(date)}</p>
+            </div>
+
+        </div>
+    );
+}
 
 export default function ContractGenerator() {
+    useEffect(() => {
+        const generatedNumber = `AGR-${Date.now().toString().slice(-6)}`;
+        setContract(prev => ({
+            ...prev,
+            agreementNumber: generatedNumber
+        }));
+    }, []);
     const [contract, setContract] = useState({
         clientName: "",
+        quotationSerial: "",
+        date: new Date().toISOString().split("T")[0],
+        agreementNumber: "",
+        quotationNumber: "",
         totalAmount: "",
 
         scope: [
             {
-              title: "Social Media Optimisation (SMO)",
-              details: [
-                "Profile setup & optimisation",
-                "Content calendar planning",
-                "Monthly analytics reporting",
-                "Engagement & comment management"
-              ]
+                title: "Social Media Optimisation (SMO)",
+                details: [
+                    "Content Strategy & Planning",
+                    "Monthly Content Calendar",
+                    "High-Quality Post Designs",
+                    "Reels & Video Editing",
+                    "SEO-Optimized Captions & Hashtags",
+                    "Community Management",
+                    "Competitor Analysis",
+                    "Profile Optimization",
+                ]
             },
             {
-              title: "Google My Business (GMB)",
-              details: [
-                "Business profile optimisation",
-                "Weekly updates & offers posting",
-                "Review monitoring & response",
-                "10 citation submissions"
-              ]
+                title: "Google My Business (GMB) Optimization",
+                details: [
+                    "Complete GMB Profile Setup & Verification",
+                    "Business Information Optimization (NAP, Categories, Services)",
+                    "Keyword-Optimized Business Description",
+                    "Regular Post Updates & Offers",
+                    "Review Management & Response Strategy",
+                    "Local SEO Optimization",
+                    "Photo & Media Optimization",
+                    "Monthly Insights & Performance Reporting",
+                ]
             },
             {
-              title: "Paid Marketing (Meta Ads)",
-              details: [
-                "Campaign setup",
-                "Audience targeting",
-                "Ad creative optimisation",
-                "Performance tracking"
-              ]
-            }
-          ], // dynamic scope (title + bullet details)
-          paymentTerms: [
+                title: "Performance Marketing (Paid Ads)",
+                details: [
+                    "Performance Marketing (Paid Ads)",
+                    "Meta Ads (Facebook & Instagram)",
+                    "Google Ads & YouTube Ads",
+                    "Brand Awareness Campaigns",
+                    "Lead Generation Campaigns",
+                    "Website Traffic Campaigns",
+                    "WhatsApp Click Campaigns",
+                    "Conversion & Retargeting Campaigns",
+                    "ROI-Focused Optimization & Scaling",
+                    "Campaign setup",
+                    "Audience targeting",
+                    "Ad creative optimisation",
+                    "Performance tracking"
+                ]
+            },
+            {
+                title: "Search Engine Optimization (SEO)",
+                details: [
+                    "Website SEO Audit & Competitor Analysis",
+                    "Keyword Research & Strategy",
+                    "On-Page SEO Optimization",
+                    "Technical SEO Improvements",
+                    "Content Optimization & Blogging Strategy",
+                    "Local SEO & Google Ranking Strategy",
+                    "High-Quality Backlink Building",
+                    "Monthly Ranking & Performance Reports",
+                ]
+            },
+
+        ], // dynamic scope (title + bullet details)
+        paymentTerms: [
             "50% advance payment before project commencement.",
             "50% balance payment after first month completion.",
             "5% weekly late charge if payment is delayed.",
             "All payments must be cleared within 7 working days."
-          ],
-          termsConditions: [
+        ],
+        termsConditions: [
             "Client must provide all necessary access credentials before project initiation.",
             "Project timeline may vary depending on client response time and approvals.",
             "All payments are non-refundable once the service has commenced.",
             "Any additional services outside the agreed scope will be charged separately.",
             "Company reserves the right to pause services if payment is delayed."
-          ],
+        ],
         pricing: [
             {
-              description: "Social Media Optimisation (SMO)",
-              cost: "₹25,000"
+                description: "Social Media Optimisation (SMO)",
+                cost: "15,000"
             },
             {
-              description: "GMB (Google My Business)",
-              cost: "₹10,000"
+                description: "GMB (Google My Business)",
+                cost: "10,000"
             },
             {
-              description: "GMB - Citations (10 Citations)",
-              cost: "₹5,000"
+                description: "GMB - Citations (10 Citations)",
+                cost: "50,000"
             },
             {
-              description: "Paid Marketing (Meta Ads)",
-              cost: "₹14,000"
+                description: "Paid Marketing (Meta Ads)",
+                cost: "12,000"
             }
-          ],
-        note: "",
+        ],
         websiteCost: "",
         note:
-            "Advertisement budgets are not included in this package (₹700–₹1000 per day recommended budget).",
+            "Advertisement budgets are not included in this package - (₹700–₹1000 per day recommended budget).",
     });
 
     // =============================
     // GENERIC ARRAY HELPERS
     // =============================
+    const generateQuotationNumber = (clientName, serial) => {
+        const companyShort = "GO";
 
+        const clientShort = clientName
+            ? clientName.replace(/[^A-Za-z]/g, "").substring(0, 2).toUpperCase()
+            : "CL";
+
+        const today = new Date();
+        const datePart =
+            String(today.getDate()).padStart(2, "0") +
+            String(today.getMonth() + 1).padStart(2, "0") +
+            today.getFullYear();
+
+        const serialPart = serial
+            ? String(serial).padStart(3, "0")
+            : "00";
+
+        return `${companyShort}${clientShort}${datePart}${serialPart}`;
+    };
     const addItem = (key, value) => {
         setContract({ ...contract, [key]: [...contract[key], value] });
+    };
+    const formatDate = (dateString) => {
+        if (!dateString) return "";
+        const options = { day: "2-digit", month: "short", year: "numeric" };
+        return new Date(dateString).toLocaleDateString("en-GB", options);
     };
 
     const updateItem = (key, index, value) => {
@@ -180,7 +342,7 @@ export default function ContractGenerator() {
 
         const LEFT = 20;
         const CONTENT_WIDTH = 170;
-        const HEADER_HEIGHT = 65;
+        const HEADER_HEIGHT = 45;
         const FOOTER_LIMIT = 270;
 
         const addBackground = () => {
@@ -212,21 +374,109 @@ export default function ContractGenerator() {
         addBackground();
         y = HEADER_HEIGHT;
 
-        // HEADER
-        doc.setFontSize(14);
-        addParagraph("SERVICE AGREEMENT", true);
+        // ================= HEADER =================
+        doc.setFontSize(16);
+        doc.setFont("helvetica", "bold");
+
+        // CENTER TITLE
+        doc.text("SERVICE AGREEMENT", 105, y, { align: "center" });
+        y += 3;
+
+        // LINE
+        doc.setLineWidth(0.3);
+        doc.line(20, y, 190, y);
+        y += 7;
+
+        // NORMAL FONT
+        doc.setFontSize(11);
+        doc.setFont("helvetica", "normal");
+
+        // SAME LINE: LEFT = QUOTATION, RIGHT = DATE
+        const quotationText = `Quotation No: ${generateQuotationNumber(
+            contract.clientName,
+            contract.quotationSerial
+        )}`;
+
+        const dateText = `Date: ${new Date(contract.date).toLocaleDateString("en-GB")}`;
+
+        // LEFT SIDE
+        doc.text(quotationText, 20, y);
+
+        // RIGHT SIDE (LAST)
+        doc.text(dateText, 190, y, { align: "right" });
+
         y += 10;
+        // =============================
+
+        const agreementDate = new Date(contract.date).toLocaleDateString("en-GB");
+
+        // First part (normal)
+        addParagraph(
+            `This Service Agreement is made on ${agreementDate} between `
+        );
+
+        // Company Name (bold)
+        doc.setFontSize(11);
+
+        let startX = 20; // Left margin
+
+        // BOLD PART
+        doc.setFont("helvetica", "bold");
+
+        const boldText =
+            "Goanny Technologies Pvt Ltd, 1St Floor, Inspiria Mall, Nigdi Pune - 411044, ";
+
+        doc.text(boldText, startX, y);
+
+        // Move cursor after bold text
+        startX += doc.getTextWidth(boldText);
+
+        // NORMAL PART
+        doc.setFont("helvetica", "normal");
+
+        const normalText = '("Service Provider")';
+
+        doc.text(normalText, startX, y);
+
+        y += 7; // Move to next line
+
+        // Continue normal text
+        addParagraph(
+            ` and `
+        );
 
         doc.setFontSize(11);
-        addParagraph(`Client: ${contract.clientName}`);
-        addParagraph(`Total Contract Value: ₹${contract.totalAmount}`);
-        y += 10;
 
+        let startY = 20; // Left margin
+
+        // BOLD CLIENT NAME
+        doc.setFont("helvetica", "bold");
+
+        const boldClient = `${contract.clientName}, `;
+        doc.text(boldClient, startY, y);
+
+        // Move X position forward
+        startY += doc.getTextWidth(boldClient);
+
+        // NORMAL TEXT
+        doc.setFont("helvetica", "normal");
+
+        const normalClientText = '("Client").';
+        doc.text(normalClientText, startY, y);
+
+        y += 10; // Move to next line
+
+        // Keep second paragraph same
+        addParagraph(
+            "The Service Provider agrees to provide the services outlined below, and the Client agrees to compensate the Service Provider as per the agreed terms."
+        );
+
+        y += 5;
         // =============================
         // 1. SCOPE OF WORK
         // =============================
         if (contract.scope.length) {
-            doc.setFontSize(12);
+            doc.setFontSize(11);
             addParagraph("1. SCOPE OF WORK", true);
             y += 5;
 
@@ -240,54 +490,34 @@ export default function ContractGenerator() {
                 y += 5;
             });
 
-            y += 5;
+            y += 4;
         }
-
         // =============================
-        // 2. PAYMENT TERMS
-        // =============================
-        if (contract.paymentTerms.length) {
-            addParagraph("2. PAYMENT TERMS", true);
-            y += 5;
-
-            contract.paymentTerms.forEach((term, index) => {
-                addParagraph(`2.${index + 1} ${term}`);
-            });
-
-            y += 10;
-        }
-
-        // =============================
-        // 3. TERMS & CONDITIONS
-        // =============================
-        if (contract.termsConditions.length) {
-            addParagraph("3. TERMS AND CONDITIONS", true);
-            y += 5;
-
-            contract.termsConditions.forEach((term, index) => {
-                addParagraph(`3.${index + 1} ${term}`);
-            });
-
-            y += 10;
-        }
-
-        // =============================
-        // 6. COMMERCIAL OF SERVICES
+        // 2. COMMERCIAL OF SERVICES
         // =============================
         if (contract.pricing.length) {
-            addParagraph("6. COMMERCIAL OF SERVICES", true);
-            y += 5;
+
+            addParagraph("2. COMMERCIAL OF SERVICES", true);
 
             const DESC_WIDTH = 120;
             const COST_WIDTH = 50;
 
+            // 🔹 TABLE HEADER (BOLD)
+            doc.setFont("helvetica", "bold");
+
             doc.rect(LEFT, y, DESC_WIDTH, 8);
             doc.rect(LEFT + DESC_WIDTH, y, COST_WIDTH, 8);
+
             doc.text("Service Description", LEFT + 2, y + 5);
             doc.text("Total Cost", LEFT + DESC_WIDTH + 2, y + 5);
+
             y += 8;
 
+            // 🔹 TABLE ROWS (NORMAL FONT)
+            doc.setFont("helvetica", "normal");
+
             contract.pricing.forEach((row) => {
+
                 checkPageBreak(10);
 
                 doc.rect(LEFT, y, DESC_WIDTH, 8);
@@ -299,24 +529,61 @@ export default function ContractGenerator() {
                 y += 8;
             });
 
-            y += 10;
+            y += 5;
         }
 
         // NOTE
         if (contract.note) {
-            addParagraph("Note:", true);
-            addParagraph(contract.note);
+            addParagraph(`Note: ${contract.note}`);
             y += 5;
         }
-
         if (contract.websiteCost) {
             addParagraph(contract.websiteCost);
             y += 10;
         }
+        // =============================
+        // 3. PAYMENT TERMS
+        // =============================
+        if (contract.paymentTerms.length) {
+            addParagraph("3. PAYMENT TERMS", true);
+            // y += 5;
+
+            contract.paymentTerms.forEach((term, index) => {
+                addParagraph(`3.${index + 1} ${term}`);
+            });
+
+            y += 5;
+        }
+
+        // =============================
+        // 4. TERMS & CONDITIONS
+        // =============================
+        if (contract.termsConditions.length) {
+            addParagraph("4. TERMS AND CONDITIONS", true);
+            // y += 5;
+
+            contract.termsConditions.forEach((term, index) => {
+                addParagraph(`4.${index + 1} ${term}`);
+            });
+
+            y += 15;
+        }
+
+
 
         // SIGNATURE
-        addParagraph("Client Signature: ____________________");
-        addParagraph("Service Provider Signature: ____________________");
+        doc.setFont("helvetica", "normal");
+
+        const leftText = "Client Signature: ____________________";
+        const rightText = "Service Provider Signature: ____________________";
+
+        // Left side
+        doc.text(leftText, 20, y);
+
+        // Right side (aligned to right margin)
+        doc.text(rightText, 190, y, { align: "right" });
+
+        y += 10;
 
         // PAGE NUMBERS
         const pageCount = doc.getNumberOfPages();
@@ -326,7 +593,7 @@ export default function ContractGenerator() {
             doc.text(`Page ${i} of ${pageCount}`, 105, 290, { align: "center" });
         }
 
-        doc.save("Dynamic-Contract.pdf");
+        doc.save("Service-Contract.pdf");
     };
 
     // =============================
@@ -338,7 +605,7 @@ export default function ContractGenerator() {
 
             <h2 className="text-xl font-bold">Dynamic Contract Generator</h2>
 
-            <input
+            {/* <input
                 placeholder="Client Company Name"
                 className="border p-3 w-full rounded"
                 onChange={(e) =>
@@ -351,6 +618,21 @@ export default function ContractGenerator() {
                 className="border p-3 w-full rounded"
                 onChange={(e) =>
                     setContract({ ...contract, totalAmount: e.target.value })
+                }
+            /> */}
+            <AgreementHeader
+                clientName={contract.clientName}
+                onClientChange={(value) =>
+                    setContract({ ...contract, clientName: value })
+                }
+                date={contract.date}
+                onDateChange={(value) =>
+                    setContract({ ...contract, date: value })
+                }
+                agreementNumber={contract.agreementNumber}
+                quotationSerial={contract.quotationSerial}
+                onQuotationChange={(value) =>
+                    setContract({ ...contract, quotationSerial: value })
                 }
             />
 
@@ -496,16 +778,16 @@ export default function ContractGenerator() {
             >
                 Add Pricing Row
             </button>
-{/* ------------------------------------------------------------- */}
+            {/* ------------------------------------------------------------- */}
 
             {/* NOTE */}
             <NoteSection
-  value={contract.note}
-  onChange={(value) =>
-    setContract({ ...contract, note: value })
-  }
-/>
-{/* ------------------------------------------------------------- */}
+                value={contract.note}
+                onChange={(value) =>
+                    setContract({ ...contract, note: value })
+                }
+            />
+            {/* ------------------------------------------------------------- */}
             <h3 className="font-semibold">Other details if you want add</h3>
             <textarea
                 className="border p-3 w-full rounded"
@@ -513,7 +795,7 @@ export default function ContractGenerator() {
                     setContract({ ...contract, websiteCost: e.target.value })
                 }
             />
-{/* ------------------------------------------------------------- */}
+            {/* ------------------------------------------------------------- */}
 
             <button
                 onClick={generatePDF}
@@ -521,7 +803,7 @@ export default function ContractGenerator() {
             >
                 Generate Full Dynamic Contract PDF
             </button>
-{/* ------------------------------------------------------------- */}
+            {/* ------------------------------------------------------------- */}
 
         </div>
     );

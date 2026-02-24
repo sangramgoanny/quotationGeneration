@@ -1,4 +1,4 @@
-import ContractGenerator from "../../../components/ContractGenerator";
+import ContractGenerator from "../../components/ContractGenerator";
 
 export default function ContractPage() {
   return (

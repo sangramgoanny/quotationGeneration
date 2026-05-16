@@ -331,7 +331,9 @@ export default function ContractGenerator() {
     const doc = new jsPDF("p", "mm", "a4");
 
     const img = new Image();
-    img.src = "/letterhead.jpg";
+    // img.src = "/letterhead.jpg";
+    img.src = "/globe.svg";
+    
     await new Promise((res) => (img.onload = res));
 
     const LEFT = 20;

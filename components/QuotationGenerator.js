@@ -332,6 +332,7 @@ export default function ContractGenerator() {
 
     const img = new Image();
     // img.src = "/letterhead.jpg";
+    
     img.src = "/globe.svg";
     
     await new Promise((res) => (img.onload = res));

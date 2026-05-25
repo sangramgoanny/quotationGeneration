@@ -27,6 +27,13 @@ export default function Sidebar() {
           📜 Service Agreement
         </button>
 
+        <button
+          onClick={() => router.push("/invoice")}
+          className="block w-full text-left hover:bg-gray-800 p-2 rounded"
+        >
+          🧾 Invoice
+        </button>
+
       </div>
     </div>
   );

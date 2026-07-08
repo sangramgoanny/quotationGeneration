@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm uninstall *)",
+      "Bash(xargs kill -9)",
+      "Bash(kill -9 35201 35251)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/auth/login -X POST -H \"Content-Type: application/json\" -d '{\"email\":\"sangram.goanny@gmail.com\",\"password\":\"Goanny@123\"}')",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/api/auth/login -X POST -H \"Content-Type: application/json\" -d '{\"email\":\"sangram.goanny@gmail.com\",\"password\":\"Goanny@123\"}')",
+      "Bash(curl -v http://localhost:3000/api/auth/login -X POST -H \"Content-Type: application/json\" -d '{\"email\":\"test@test.com\",\"password\":\"test\"}')",
+      "Bash(mkdir -p /Users/apple/Sangram-code/quotationGeneration/types *)",
+      "Bash(mkdir -p /Users/apple/Sangram-code/quotationGeneration/lib/supabase)",
+      "Bash(mkdir -p /Users/apple/Sangram-code/quotationGeneration/app/api/clients)",
+      "Bash(mkdir -p /Users/apple/Sangram-code/quotationGeneration/app/api/clients/\\\\[id\\\\])",
+      "Bash(grep -n \"Follow-up\\\\|Call / Meeting\\\\|followUpAt\\\\|followUpNote\\\\|reminderType\\\\|reminderAt\\\\|reminderNote\\\\|Save Reminder\\\\|Save$\" /Users/apple/Sangram-code/quotationGeneration/app/crm/leads/page.tsx)",
+      "Bash(lsof -ti:3000)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/crm/leads)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/crm/leads/new)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/login)",
+      "Bash(curl -s http://localhost:3000/api/clients?status=LEAD)",
+      "Bash(curl -s \"http://localhost:3000/api/clients?status=LEAD\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/clients -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpZCI6IjI4NWM4OGY0LTVhZTctNDViNi1iN2Y5LWMyMTU1YmUyYzRkYiIsImVtYWlsIjoic2FuZ3JhbS5nb2FubnlAZ21haWwuY29tIiwicm9sZSI6IkFETUlOIiwiaWF0IjoxNzgwMjUzMDM3LCJleHAiOjE3ODA4NTc4Mzd9.S9MzjGqSbjRZyS-Y4PCTpaYj3DolxiJZUqnapI_-oDQ' -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(awk 'NR < 118 || NR > 622' /Users/apple/Sangram-code/quotationGeneration/app/crm/leads/page.tsx)",
+      "Bash(mv /tmp/leads_tmp.tsx /Users/apple/Sangram-code/quotationGeneration/app/crm/leads/page.tsx)",
+      "Bash(awk 'NR < 182 || NR > 303' /Users/apple/Sangram-code/quotationGeneration/app/crm/leads/page.tsx)",
+      "Bash(curl -s \"http://localhost:3000/api/clients?status=LEAD&limit=3\")",
+      "Bash(curl -s -X POST http://localhost:3000/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"sangram.goanny@gmail.com\",\"password\":\"Goanny@123\"}')"
+    ],
+    "additionalDirectories": [
+      "/Users/apple/Sangram-code/quotationGeneration/app/crm/clients/[id]",
+      "/Users/apple/Sangram-code/quotationGeneration/app/api/clients"
+    ]
+  }
+}

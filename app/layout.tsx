@@ -1,20 +1,23 @@
-import Sidebar from "../components/Sidebar";
+import type { Metadata } from "next";
+import ConditionalLayout from "../components/ConditionalLayout";
 import { ReactNode } from "react";
 import "./globals.css";
 
+export const metadata: Metadata = {
+  title: {
+    default: "Goanny ERP",
+    template: "%s | Goanny ERP",
+  },
+  description: "Goanny Technologies — Internal CRM, Sales, Finance & Project Management System.",
+  robots: { index: false, follow: false },
+  icons: { icon: "/GoannyLogo.png" },
+};
+
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html>
+    <html lang="en">
       <body>
-        <div className="flex min-h-screen bg-gray-100">
-
-          <Sidebar />
-
-          <main className="flex-1 p-8">
-            {children}
-          </main>
-
-        </div>
+        <ConditionalLayout>{children}</ConditionalLayout>
       </body>
     </html>
   );

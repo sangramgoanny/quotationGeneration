@@ -52,7 +52,7 @@ const generateInvoiceNumber = (clientName, serial) => {
     String(today.getMonth() + 1).padStart(2, "0") +
     today.getFullYear();
   const serialPart = serial ? String(serial).padStart(3, "0") : "001";
-  return `GO${clientShort}INV${datePart}${serialPart}`;
+  return `GO/${clientShort}/INV/${datePart}/${serialPart}`;
 };
 
 export default function InvoiceGenerator() {

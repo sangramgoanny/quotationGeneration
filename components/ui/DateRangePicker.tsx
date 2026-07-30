@@ -52,14 +52,18 @@ export default function DateRangePicker({ from, to, onChange, placeholder = "Sel
   const [leftMonth, setLeftMonth] = useState<Date>(new Date());
   const containerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!open) return;
+  const togglePicker = () => {
+    if (open) {
+      setOpen(false);
+      return;
+    }
     const f = parseISO(from);
     const t = parseISO(to);
     setTempFrom(f);
     setTempTo(t);
     setLeftMonth(addMonths(f ?? new Date(), 0));
-  }, [open, from, to]);
+    setOpen(true);
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -100,13 +104,17 @@ export default function DateRangePicker({ from, to, onChange, placeholder = "Sel
   };
 
   const today = startOfDay(new Date());
+  const startOfWeek = addDays(today, -((today.getDay() + 6) % 7));
+  const quarterStartMonth = Math.floor(today.getMonth() / 3) * 3;
+  const financialYearStart = today.getMonth() >= 3
+    ? new Date(today.getFullYear(), 3, 1)
+    : new Date(today.getFullYear() - 1, 3, 1);
   const presets: { label: string; range: () => [Date, Date] }[] = [
-    { label: "Today",        range: () => [today, today] },
-    { label: "Yesterday",    range: () => [addDays(today, -1), addDays(today, -1)] },
-    { label: "Last 7 days",  range: () => [addDays(today, -6), today] },
-    { label: "Last 30 days", range: () => [addDays(today, -29), today] },
-    { label: "This month",   range: () => [new Date(today.getFullYear(), today.getMonth(), 1), today] },
-    { label: "Last month",   range: () => [new Date(today.getFullYear(), today.getMonth() - 1, 1), new Date(today.getFullYear(), today.getMonth(), 0)] },
+    { label: "Today",               range: () => [today, today] },
+    { label: "This Week",           range: () => [startOfWeek, today] },
+    { label: "This Month",          range: () => [new Date(today.getFullYear(), today.getMonth(), 1), today] },
+    { label: "This Quarter",        range: () => [new Date(today.getFullYear(), quarterStartMonth, 1), today] },
+    { label: "This Financial Year", range: () => [financialYearStart, today] },
   ];
 
   const handleApply = () => {
@@ -171,10 +179,10 @@ export default function DateRangePicker({ from, to, onChange, placeholder = "Sel
   }
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative shrink-0" ref={containerRef}>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={togglePicker}
         className={`flex items-center gap-2 w-[230px] px-3 py-2 text-sm border rounded-lg outline-none transition-colors
           ${open ? "border-indigo-400 ring-2 ring-indigo-100" : "border-slate-300 hover:border-slate-400"}
           bg-white`}
@@ -192,7 +200,7 @@ export default function DateRangePicker({ from, to, onChange, placeholder = "Sel
       </button>
 
       {open && (
-        <div className="absolute z-50 top-full left-0 mt-2 bg-white border border-slate-200 rounded-2xl shadow-2xl flex overflow-hidden">
+        <div className="absolute right-0 top-full z-[100] mt-2 flex max-w-[calc(100vw-2rem)] overflow-x-auto rounded-2xl border border-slate-200 bg-white shadow-2xl">
           <div className="w-[140px] border-r border-slate-100 p-2 flex flex-col gap-0.5 bg-slate-50">
             {presets.map((p) => (
               <button

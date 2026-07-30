@@ -1,6 +1,6 @@
 import { authHeader } from "@/utils/token";
 import { API_BASE_URL as BASE } from "@/lib/api/config";
-import type { Client, ContactPerson, ClientDocument } from "@/types/client";
+import { emptyClient, type Client, type ContactPerson, type ClientDocument } from "@/types/client";
 import { request } from "./request";
 
 // ─── Enum maps: frontend display value → API enum ────────────────────────────
@@ -50,7 +50,7 @@ function clientToSpec(c: Partial<Client> & { leadStage?: string }): Record<strin
   };
   const str = (v: unknown) => (v == null ? "" : String(v));
 
-  return {
+  const payload = {
     // ── Section 1: Basic Info ──────────────────────────────────────────────
     companyName:          str(c.companyName),
     clientType:           CLIENT_TYPE_MAP[str(c.clientType)] ?? "COMPANY",
@@ -109,12 +109,12 @@ function clientToSpec(c: Partial<Client> & { leadStage?: string }): Record<strin
     googleBusiness:       str(c.googleBusiness),
 
     // ── Section 7: Account Info ───────────────────────────────────────────
-    accountManagerId:     c.accountManager || null,
+    accountManagerId:     c.accountManager || undefined,
     leadSource:           LEAD_SOURCE_MAP[str(c.leadSource)]   || undefined,
     paymentTerms:         PAYMENT_TERMS_MAP[str(c.paymentTerms)] || undefined,
-    creditLimit:          num(c.creditLimit)        ?? 0,
-    openingBalance:       num(c.openingBalance)     ?? 0,
-    outstandingBalance:   num(c.outstandingBalance) ?? 0,
+    creditLimit:          num(c.creditLimit),
+    openingBalance:       num(c.openingBalance),
+    outstandingBalance:   num(c.outstandingBalance),
 
     // ── Section 8: Bank Details (flat fields) ─────────────────────────────
     bankName:             str(c.bankDetails?.bankName),
@@ -134,6 +134,12 @@ function clientToSpec(c: Partial<Client> & { leadStage?: string }): Record<strin
     developmentServices:         Array.isArray(c.developmentServices)        ? c.developmentServices        : undefined,
     digitalMarketingServices:    Array.isArray(c.digitalMarketingServices)   ? c.digitalMarketingServices   : undefined,
   };
+
+  // The backend validates optional values when present. Do not send blank
+  // strings or undefined fields; keep false, zero, and array values intact.
+  return Object.fromEntries(
+    Object.entries(payload).filter(([, value]) => value !== "" && value !== undefined && value !== null),
+  );
 }
 
 function toEnum(value: string): string {
@@ -163,12 +169,65 @@ export interface ClientListResponse {
   pages: number;
 }
 
+interface RawClientListItem extends Omit<Partial<Client>, "accountManager" | "outstandingBalance" | "billingCity"> {
+  accountManager?: { id: string; name: string } | string | null;
+  billingCity?: string | null;
+  outstandingBalance?: string | number;
+  _count?: { quotations?: number; invoices?: number };
+}
+
 interface RawListResponse {
   success: boolean;
   data: {
-    clients: Client[];
+    clients: RawClientListItem[];
     pagination: { total: number; page: number; limit: number; pages: number };
   };
+}
+
+const CLIENT_STATUS_DISPLAY: Record<string, Client["status"]> = {
+  LEAD: "Lead",
+  ACTIVE: "Active",
+  INACTIVE: "Inactive",
+  COMPLETED: "Completed",
+  BLACKLISTED: "Blacklisted",
+};
+
+const CLIENT_TYPE_DISPLAY: Record<string, Client["clientType"]> = {
+  COMPANY: "Company",
+  INDIVIDUAL: "Individual",
+};
+
+const INDUSTRY_DISPLAY: Record<string, Client["industry"]> = {
+  IT_SERVICES: "IT Services",
+  DIGITAL_MARKETING: "Digital Marketing",
+  MANUFACTURING: "Manufacturing",
+  HEALTHCARE: "Healthcare",
+  EDUCATION: "Education",
+  RETAIL: "Retail",
+  CONSTRUCTION: "Construction",
+  MINING: "Mining",
+  LOGISTICS: "Logistics",
+  REAL_ESTATE: "Real Estate",
+  FINANCE: "Finance",
+  OTHER: "Other",
+};
+
+function listItemToClient(row: RawClientListItem): Client {
+  const manager = row.accountManager;
+  return {
+    ...emptyClient(),
+    ...row,
+    id: row.id,
+    status: CLIENT_STATUS_DISPLAY[String(row.status)] ?? row.status ?? "Lead",
+    clientType: CLIENT_TYPE_DISPLAY[String(row.clientType)] ?? row.clientType ?? "Company",
+    industry: INDUSTRY_DISPLAY[String(row.industry)] ?? row.industry ?? "",
+    accountManager: typeof manager === "object" && manager ? manager.id : String(manager ?? ""),
+    accountManagerName: typeof manager === "object" && manager ? manager.name : undefined,
+    billingCity: row.billingCity ?? undefined,
+    outstandingBalance: String(row.outstandingBalance ?? "0"),
+    quotationCount: row._count?.quotations ?? 0,
+    invoiceCount: row._count?.invoices ?? 0,
+  } as Client;
 }
 
 // ─── API ──────────────────────────────────────────────────────────────────────
@@ -183,14 +242,28 @@ export const clientsApi = {
     if (filters?.industry)         p.set("industry",         toEnum(filters.industry));
     if (filters?.type)             p.set("type",             toEnum(filters.type));
     if (filters?.accountManagerId) p.set("accountManagerId", filters.accountManagerId);
-    if (filters?.fromDate)         p.set("fromDate",         filters.fromDate);
-    if (filters?.toDate)           p.set("toDate",           filters.toDate);
+    if (filters?.fromDate) {
+      p.set(
+        "fromDate",
+        /^\d{4}-\d{2}-\d{2}$/.test(filters.fromDate)
+          ? `${filters.fromDate}T00:00:00.000Z`
+          : filters.fromDate,
+      );
+    }
+    if (filters?.toDate) {
+      p.set(
+        "toDate",
+        /^\d{4}-\d{2}-\d{2}$/.test(filters.toDate)
+          ? `${filters.toDate}T23:59:59.999Z`
+          : filters.toDate,
+      );
+    }
     if (filters?.page)             p.set("page",             String(filters.page));
     if (filters?.limit)            p.set("limit",            String(filters.limit));
     const qs = p.toString();
     const raw = await request<RawListResponse>(`/api/clients${qs ? `?${qs}` : ""}`);
     const { clients, pagination } = raw.data;
-    return { data: clients, ...pagination };
+    return { data: clients.map(listItemToClient), ...pagination };
   },
 
   async get(id: string): Promise<Client> {

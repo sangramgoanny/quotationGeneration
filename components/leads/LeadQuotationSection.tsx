@@ -61,7 +61,6 @@ interface ScopeService { title: string; details: string[] }
 
 interface QuotationContract {
   clientName: string;
-  quotationSerial: string;
   date: string;
   subject: string;
   introParagraph: string;
@@ -87,25 +86,10 @@ interface SavedQuotation {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const COMPANY_SHORT = "GO";
-
-function buildQuotationNumber(clientName: string, serial: string) {
-  const clientShort = clientName
-    ? clientName.replace(/[^A-Za-z]/g, "").substring(0, 2).toUpperCase()
-    : "CL";
-  const t = new Date();
-  const datePart =
-    String(t.getDate()).padStart(2, "0") +
-    String(t.getMonth() + 1).padStart(2, "0") +
-    t.getFullYear();
-  const serialPart = serial ? String(serial).padStart(3, "0") : "000";
-  return `${COMPANY_SHORT}${clientShort}${datePart}${serialPart}`;
-}
-
 function mapListItemToSaved(q: QuotationListItem): SavedQuotation {
   return {
     id: q.id,
-    quotationNumber: q.quotationNumber,
+    quotationNumber: q.quotationNumber || "—",
     date: q.date,
     subject: q.subject,
     totalAmount: String(q.totalAmount ?? ""),
@@ -119,7 +103,6 @@ function mapQuotationToContract(q: Quotation): QuotationContract {
   const rawTimeline = (q as unknown as { timeline?: Array<{ phase: string; description?: string; duration: number; unit: string }> }).timeline ?? [];
   return {
     clientName: q.clientName,
-    quotationSerial: "",
     date: q.date ? q.date.slice(0, 10) : "",
     subject: q.subject,
     introParagraph: q.introParagraph || "",
@@ -141,7 +124,7 @@ function mapQuotationToContract(q: Quotation): QuotationContract {
 function mapQuotationToSaved(q: Quotation): SavedQuotation {
   return {
     id: q.id,
-    quotationNumber: q.quotationNumber,
+    quotationNumber: q.quotationNumber || "—",
     date: q.date,
     subject: q.subject,
     totalAmount: String(q.totalAmount ?? ""),
@@ -209,7 +192,7 @@ function SectionTitle({ n, children }: { n: number; children: React.ReactNode })
   );
 }
 
-async function generatePDF(contract: QuotationContract) {
+async function downloadQuotationPdf(contract: QuotationContract, quotationNumber: string) {
   const doc = new jsPDF("p", "mm", "a4");
 
   const img = new Image();
@@ -275,8 +258,6 @@ async function generatePDF(contract: QuotationContract) {
     doc.line(labelEndX + 3, y - 1.5, R, y - 1.5);
     ln(8);
   };
-
-  const quotationNumber = buildQuotationNumber(contract.clientName, contract.quotationSerial);
 
   // 1. TITLE
   tf(true, 18); sc(C.navy);
@@ -567,7 +548,6 @@ async function generatePDF(contract: QuotationContract) {
 function defaultContract(clientName: string): QuotationContract {
   return {
     clientName,
-    quotationSerial: "",
     date: new Date().toISOString().split("T")[0],
     subject: "Proposal for Digital Marketing Services",
     introParagraph:
@@ -621,9 +601,7 @@ function QuotationModal({ leadId, initial, existingId, displayNumber, onClose, o
     []
   );
 
-  const quotationNumber = existingId
-    ? (displayNumber ?? buildQuotationNumber(contract.clientName, contract.quotationSerial))
-    : buildQuotationNumber(contract.clientName, contract.quotationSerial);
+  const quotationNumber = displayNumber || "Assigned by backend after saving";
 
   // ── Scope helpers ──
   const addScope = () =>
@@ -703,8 +681,12 @@ function QuotationModal({ leadId, initial, existingId, displayNumber, onClose, o
   };
 
   const handleDownload = async () => {
+    if (!displayNumber) {
+      setError("Save the quotation first. The quotation number is assigned by the backend.");
+      return;
+    }
     setDownloading(true);
-    await generatePDF(contract);
+    await downloadQuotationPdf(contract, displayNumber);
     setDownloading(false);
   };
 
@@ -754,14 +736,8 @@ function QuotationModal({ leadId, initial, existingId, displayNumber, onClose, o
               />
             </div>
             <div>
-              <label className={labelCls}>Quotation Serial No.</label>
-              <input
-                type="number"
-                className={inputCls}
-                value={contract.quotationSerial}
-                placeholder="e.g. 1"
-                onChange={(e) => set({ quotationSerial: e.target.value.replace(/\D/g, "") })}
-              />
+              <label className={labelCls}>Quotation Number</label>
+              <input className={`${inputCls} bg-slate-50`} value={quotationNumber} readOnly />
             </div>
             <div>
               <label className={labelCls}>Total Amount</label>
@@ -1007,7 +983,7 @@ interface ViewModalProps {
 
 function ViewModal({ quotation, onEdit, onClose, onDownload, downloading, onStatusChange, updatingStatus }: ViewModalProps) {
   const c = quotation.contractData ?? {
-    clientName: "", quotationSerial: "", date: quotation.date, subject: quotation.subject,
+    clientName: "", date: quotation.date, subject: quotation.subject,
     introParagraph: "", scope: [], paymentTerms: [], termsConditions: [], pricing: [], timeline: [],
     note: "", totalAmount: quotation.totalAmount,
   };
@@ -1314,7 +1290,7 @@ export default function LeadQuotationSection({
     setDownloadingId(q.id);
     try {
       const full = await ensureContract(q);
-      if (full.contractData) await generatePDF(full.contractData);
+      if (full.contractData) await downloadQuotationPdf(full.contractData, full.quotationNumber);
       onActivity?.("Quotation Downloaded", `Downloaded PDF for ${q.quotationNumber}`);
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to load quotation for download");

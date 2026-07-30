@@ -164,11 +164,15 @@ export interface Client {
 
   // Account Info
   accountManager: string;
+  accountManagerName?: string;
   leadSource: LeadSource | "";
   paymentTerms: PaymentTerms | "";
   creditLimit: string;
   openingBalance: string;
   outstandingBalance: string;
+  billingCity?: string;
+  quotationCount?: number;
+  invoiceCount?: number;
 
   // Bank Details
   bankDetails: BankDetails;

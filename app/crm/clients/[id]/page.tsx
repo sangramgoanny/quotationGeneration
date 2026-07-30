@@ -1,6 +1,7 @@
 "use client";
 
 import React, { use } from "react";
+import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import ClientProfile from "@/components/clients/ClientProfile";
@@ -11,6 +12,7 @@ interface Props {
 
 export default function ClientDetailPage({ params }: Props) {
   const { id } = use(params);
+  const searchParams = useSearchParams();
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -31,7 +33,7 @@ export default function ClientDetailPage({ params }: Props) {
 
       {/* Profile */}
       <div className="p-6">
-        <ClientProfile clientId={id} />
+        <ClientProfile clientId={id} initialTab={searchParams.get("tab") ?? undefined} />
       </div>
     </div>
   );

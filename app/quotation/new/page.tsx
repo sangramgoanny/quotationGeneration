@@ -1,7 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useRef, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft, PlusCircle, MinusCircle, ChevronRight, Save, Search, X,
   GripVertical, Info, Trash2, Calendar,
@@ -43,8 +43,17 @@ function fmtAmt(n: number) {
 }
 
 function buildAddress(c: Client): string {
-  const a = c.billingAddress;
-  if (!a) return "";
+  // The frontend Client type uses a nested billingAddress, while the backend
+  // client endpoint returns flat billingLine* fields. Accept either shape.
+  const raw = c as Client & Record<string, unknown>;
+  const a = c.billingAddress ?? {
+    line1: String(raw.billingLine1 ?? ""),
+    line2: String(raw.billingLine2 ?? ""),
+    city: String(raw.billingCity ?? ""),
+    state: String(raw.billingState ?? ""),
+    country: String(raw.billingCountry ?? ""),
+    pincode: String(raw.billingPincode ?? ""),
+  };
   return [a.line1, a.line2, a.city, a.state && a.pincode ? `${a.state} – ${a.pincode}` : (a.state || a.pincode)]
     .filter(Boolean).join(", ");
 }
@@ -144,11 +153,48 @@ function Section({ title, action }: { title: string; action?: React.ReactNode })
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function NewQuotationPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-slate-500">Loading quotation form…</div>}>
+      <NewQuotationPageInner />
+    </Suspense>
+  );
+}
+
+function NewQuotationPageInner() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [form, setForm]     = useState(EMPTY);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [apiError, setApiError] = useState("");
+  const [createdQuotation, setCreatedQuotation] = useState<Awaited<ReturnType<typeof quotationsApi.create>> | null>(null);
+  const profileClientId = searchParams.get("clientId");
+
+  // A quotation opened from a client profile includes its ID in the URL.
+  // Fetch the full record so its current name and billing address are used.
+  useEffect(() => {
+    if (!profileClientId) return;
+
+    let cancelled = false;
+    clientsApi.get(profileClientId)
+      .then((client) => {
+        if (cancelled) return;
+        setForm((current) => ({
+          ...current,
+          clientId: client.id ?? profileClientId,
+          clientName: client.companyName,
+          clientAddress: buildAddress(client),
+        }));
+        setErrors((current) => ({ ...current, clientId: "" }));
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setApiError(error instanceof Error ? error.message : "Failed to load client details");
+        }
+      });
+
+    return () => { cancelled = true; };
+  }, [profileClientId]);
 
   const totalAmount = form.pricing.reduce((s, r) => s + (Number(r.cost) || 0), 0);
   const totalDurationDays = form.timeline.reduce((s, p) => s + (Number(p.duration) || 0) * UNIT_TO_DAYS[p.unit], 0);
@@ -202,7 +248,7 @@ export default function NewQuotationPage() {
           sortOrder:   i,
         }));
 
-      await quotationsApi.create({
+      const created = await quotationsApi.create({
         clientId:        form.clientId,
         clientName:      form.clientName.trim(),
         clientAddress:   form.clientAddress.trim(),
@@ -223,7 +269,8 @@ export default function NewQuotationPage() {
           .filter(Boolean)
           .map((t, i) => ({ term: t, sortOrder: i })),
       });
-      router.push("/quotation");
+      setCreatedQuotation(created);
+      router.refresh();
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Failed to save quotation");
     } finally {
@@ -284,6 +331,12 @@ export default function NewQuotationPage() {
       {/* API error */}
       {apiError && (
         <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700">{apiError}</div>
+      )}
+      {createdQuotation && (
+        <div className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          <span className="font-semibold">Quotation {createdQuotation.quotationNumber || "—"} created successfully.</span>
+          <button onClick={() => router.push(`/quotation/${createdQuotation.id}/edit`)} className="font-bold text-indigo-700 hover:underline">View quotation</button>
+        </div>
       )}
 
       {/* ── Basic Info ── */}

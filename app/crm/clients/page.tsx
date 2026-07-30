@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState, useEffect, useCallback } from "react";
+import React, { Suspense, useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
@@ -8,10 +8,14 @@ import {
   FileText, Briefcase, Receipt, RefreshCw,
   Users, UserCheck, UserX, AlertCircle, CheckCircle2, Ban,
   Sparkles, Building2, Mail, Phone, CalendarDays, X,
-  TrendingUp, Clock3, ShieldCheck,
+  TrendingUp, Clock3, ShieldCheck, Upload, MoreVertical,
+  WalletCards, CircleDollarSign, BadgeIndianRupee, FileClock,
+  UserRoundCheck, Activity as ActivityIcon, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { clientsApi } from "@/lib/api/clients";
+import { usersApi, type User as AccountUser } from "@/lib/api/users";
 import type { Client, ClientStatus, Industry } from "@/types/client";
+import DateRangePicker from "@/components/ui/DateRangePicker";
 
 // ─── Status badge config ──────────────────────────────────────────────────────
 
@@ -22,6 +26,7 @@ const STATUS_COLORS: Record<string, string> = {
   Completed:   "bg-violet-50 text-violet-700 ring-violet-100",
   Blacklisted: "bg-red-50 text-red-700 ring-red-100",
 };
+const ERP_CURRENCY = process.env.NEXT_PUBLIC_CURRENCY ?? "INR";
 
 
 function StatusBadge({ status }: { status: string }) {
@@ -48,17 +53,23 @@ function getClientHealth(client: Client) {
     if (ageDays < 45 && client.status === "Active") score += 4;
   }
   const value = Math.max(8, Math.min(98, score));
-  if (value >= 78) return { score: value, label: "Healthy", className: "text-emerald-700 bg-emerald-50 ring-emerald-100", bar: "bg-emerald-500" };
-  if (value >= 56) return { score: value, label: "Stable", className: "text-sky-700 bg-sky-50 ring-sky-100", bar: "bg-[#0070B8]" };
-  if (value >= 38) return { score: value, label: "Needs Care", className: "text-amber-700 bg-amber-50 ring-amber-100", bar: "bg-amber-500" };
-  return { score: value, label: "At Risk", className: "text-red-700 bg-red-50 ring-red-100", bar: "bg-red-500" };
+  const reasons = [
+    `Lifecycle status: ${client.status}`,
+    client.primaryEmail ? "Primary email available" : "Primary email missing",
+    client.mobile || client.whatsapp ? "Phone contact available" : "Phone contact missing",
+    client.industry ? "Industry captured" : "Industry missing",
+  ].join(" • ");
+  if (value >= 80) return { score: value, label: "Healthy", className: "text-emerald-700 bg-emerald-50 ring-emerald-100", bar: "bg-emerald-500", reasons };
+  if (value >= 60) return { score: value, label: "Stable", className: "text-sky-700 bg-sky-50 ring-sky-100", bar: "bg-[#0070B8]", reasons };
+  if (value >= 40) return { score: value, label: "Needs Attention", className: "text-amber-700 bg-amber-50 ring-amber-100", bar: "bg-amber-500", reasons };
+  return { score: value, label: "At Risk", className: "text-red-700 bg-red-50 ring-red-100", bar: "bg-red-500", reasons };
 }
 
 function HealthBadge({ client }: { client: Client }) {
   const health = getClientHealth(client);
 
   return (
-    <div className="min-w-[116px]">
+    <div className="min-w-[116px]" title={`Rule-based Health Score: ${health.reasons}`}>
       <div className={`inline-flex items-center gap-2 rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ${health.className}`}>
         <span>{health.score}</span>
         <span>{health.label}</span>
@@ -159,7 +170,7 @@ function ClientPreviewDrawer({
           <section className="rounded-[22px] border border-slate-200 bg-[#061526] p-5 text-white shadow-[0_18px_45px_rgba(15,23,42,0.12)]">
             <div className="flex items-center gap-3">
               <Sparkles className="h-5 w-5 text-[#0EA5E9]" />
-              <h3 className="text-sm font-black">AI Recommendation</h3>
+              <h3 className="text-sm font-black">Rule-based Recommendation</h3>
             </div>
             <p className="mt-3 text-sm leading-6 text-slate-300">
               {health.score < 56
@@ -190,7 +201,7 @@ function ClientPreviewDrawer({
 function SkeletonRow() {
   return (
     <tr className="animate-pulse">
-      {Array.from({ length: 9 }).map((_, i) => (
+      {Array.from({ length: 12 }).map((_, i) => (
         <td key={i} className="px-5 py-4">
           <div className="h-4 w-full rounded-full bg-slate-100" />
         </td>
@@ -229,28 +240,40 @@ function ActionButtons({
       </button>
 
       <button
-        title="Create Quotation"
-        onClick={() => router.push(`/quotation?clientId=${client.id}`)}
-        className={`${btn} text-blue-600 hover:bg-blue-50`}
+        title="Add Activity"
+        onClick={() => router.push(`/crm/clients/${client.id}?tab=activity`)}
+        className={`${btn} text-amber-600 hover:bg-amber-50`}
       >
-        <FileText className="h-4 w-4 transition-transform group-hover/action:scale-110" />
+        <ActivityIcon className="h-4 w-4 transition-transform group-hover/action:scale-110" />
       </button>
 
-      <button
-        title="Create Agreement"
-        onClick={() => router.push(`/contract?clientId=${client.id}`)}
-        className={`${btn} text-violet-600 hover:bg-violet-50`}
-      >
-        <Briefcase className="h-4 w-4 transition-transform group-hover/action:scale-110" />
-      </button>
-
-      <button
-        title="Create Invoice"
-        onClick={() => router.push(`/invoice?clientId=${client.id}`)}
-        className={`${btn} text-emerald-600 hover:bg-emerald-50`}
-      >
-        <Receipt className="h-4 w-4 transition-transform group-hover/action:scale-110" />
-      </button>
+      <details className="group/menu relative">
+        <summary title="More actions" className={`${btn} list-none cursor-pointer text-slate-500 hover:bg-slate-100`}>
+          <MoreVertical className="h-4 w-4" />
+        </summary>
+        <div className="absolute right-0 z-30 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl">
+          {[
+            ["Create Quotation", FileText, `/quotation/new?clientId=${client.id}`],
+            ["Create Invoice", Receipt, `/invoice/new?clientId=${client.id}`],
+            ["Create Agreement", Briefcase, `/contract?clientId=${client.id}`],
+            ["Add Follow-up", Clock3, `/crm/clients/${client.id}?tab=activity`],
+            ["Upload Document", Upload, `/crm/clients/${client.id}?tab=documents`],
+            ["View Timeline", ActivityIcon, `/crm/clients/${client.id}?tab=activity`],
+          ].map(([label, Icon, href]) => {
+            const MenuIcon = Icon as React.ComponentType<{ className?: string }>;
+            return (
+              <button
+                key={String(label)}
+                type="button"
+                onClick={() => router.push(String(href))}
+                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-sky-50 hover:text-[#0070B8]"
+              >
+                <MenuIcon className="h-3.5 w-3.5" /> {String(label)}
+              </button>
+            );
+          })}
+        </div>
+      </details>
     </div>
   );
 }
@@ -264,33 +287,80 @@ function StatCard({
   color,
   onClick,
   active,
+  helper,
+  loading,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
   onClick?: () => void;
   active?: boolean;
+  helper?: string;
+  loading?: boolean;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`group relative overflow-hidden rounded-[20px] border bg-white p-5 text-left shadow-[0_18px_45px_rgba(15,23,42,0.06)] transition-all duration-300 ${
-        active ? "border-[#0070B8] ring-4 ring-sky-100 -translate-y-0.5" : "border-slate-200 hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_24px_55px_rgba(15,23,42,0.10)]"
+      className={`group relative min-h-[100px] overflow-hidden rounded-2xl border bg-white p-3.5 text-left shadow-sm transition-all duration-200 ${
+        active ? "border-[#0070B8] ring-2 ring-sky-100" : "border-slate-200 hover:border-sky-200 hover:shadow-md"
       } ${onClick ? "cursor-pointer" : "cursor-default"}`}
+      title={helper}
     >
-      <div className="pointer-events-none absolute -right-10 -top-12 h-24 w-24 rounded-full bg-sky-100/60 opacity-0 blur-2xl transition-opacity group-hover:opacity-100" />
       <div className="relative flex items-center gap-3">
-      <div className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3 ${color}`}>
-        <Icon className="h-5 w-5" />
+      <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${color}`}>
+        <Icon className="h-4 w-4" />
       </div>
       <div>
-        <p className="text-2xl font-black tracking-tight text-slate-950">{value}</p>
-        <p className="text-xs font-semibold text-slate-500">{label}</p>
+        {loading ? <div className="mb-2 h-7 w-14 animate-pulse rounded-lg bg-slate-100" /> : (
+          <p className="text-2xl font-black tracking-tight text-slate-950">{value === null ? "—" : value.toLocaleString("en-IN")}</p>
+        )}
+        <p className="text-[11px] font-semibold text-slate-500">{label}</p>
+        <p className="mt-0.5 text-[9px] font-semibold text-slate-400">{value === null ? "Data unavailable" : "Client records"}</p>
       </div>
       </div>
     </button>
+  );
+}
+
+interface FinancialMetric {
+  label: string;
+  value: number | null;
+  kind: "currency" | "percentage";
+  icon: React.ComponentType<{ className?: string }>;
+  tone: string;
+  helper: string;
+}
+
+function formatFinancialValue(value: number, kind: FinancialMetric["kind"]) {
+  if (kind === "percentage") return `${value.toLocaleString("en-IN", { maximumFractionDigits: 1 })}%`;
+  return new Intl.NumberFormat("en-IN", {
+    style: "currency",
+    currency: ERP_CURRENCY,
+    maximumFractionDigits: 0,
+  }).format(value);
+}
+
+function FinancialMetricCard({ metric }: { metric: FinancialMetric }) {
+  const Icon = metric.icon;
+  return (
+    <div className="rounded-[20px] border border-slate-200 bg-white p-4 shadow-[0_18px_45px_rgba(15,23,42,0.05)]" title={metric.helper}>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-bold text-slate-500">{metric.label}</p>
+          <p className={`mt-2 text-xl font-black tracking-tight ${metric.value === null ? "text-slate-400" : "text-slate-950"}`}>
+            {metric.value === null ? "Unavailable" : formatFinancialValue(metric.value, metric.kind)}
+          </p>
+          <p className="mt-1 text-[10px] font-semibold text-slate-400">
+            {metric.value === null ? "Reporting API required" : "Selected period"}
+          </p>
+        </div>
+        <span className={`flex h-10 w-10 items-center justify-center rounded-2xl ${metric.tone}`}>
+          <Icon className="h-5 w-5" />
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -306,17 +376,29 @@ export default function ClientsPage() {
 
 function ClientsPageInner() {
   const searchParams = useSearchParams();
+  const router = useRouter();
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
+  const [countsLoading, setCountsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
+  const [accountManagers, setAccountManagers] = useState<AccountUser[]>([]);
+  const importing = false;
 
   // Filters
-  const [search, setSearch] = useState("");
+  const [searchInput, setSearchInput] = useState(searchParams.get("search") ?? "");
+  const [search, setSearch] = useState(searchParams.get("search") ?? "");
   const [statusFilter, setStatusFilter] = useState<string>(searchParams.get("status") ?? "Active");
-  const [industryFilter, setIndustryFilter] = useState<string>("");
-  const [fromDate, setFromDate] = useState("");
-  const [toDate, setToDate] = useState("");
+  const [industryFilter, setIndustryFilter] = useState<string>(searchParams.get("industry") ?? "");
+  const [accountManagerFilter, setAccountManagerFilter] = useState(searchParams.get("accountManagerId") ?? "");
+  const [healthFilter, setHealthFilter] = useState(searchParams.get("health") ?? "");
+  const [profileFilter, setProfileFilter] = useState(searchParams.get("profile") ?? "");
+  const [fromDate, setFromDate] = useState(searchParams.get("fromDate") ?? "");
+  const [toDate, setToDate] = useState(searchParams.get("toDate") ?? "");
+  const [page, setPage] = useState(Math.max(1, Number(searchParams.get("page")) || 1));
+  const [limit, setLimit] = useState(Math.max(10, Number(searchParams.get("limit")) || 20));
+  const [pagination, setPagination] = useState({ total: 0, pages: 1 });
 
   const [statusCounts, setStatusCounts] = useState<Record<"Active" | "Inactive" | "Completed" | "Blacklisted", number>>({
     Active: 0, Inactive: 0, Completed: 0, Blacklisted: 0,
@@ -329,10 +411,22 @@ function ClientsPageInner() {
       setStatusCounts(
         statuses.reduce((acc, s, i) => ({ ...acc, [s]: results[i].total }), {} as Record<"Active" | "Inactive" | "Completed" | "Blacklisted", number>)
       );
-    } catch { /* ignore if backend unavailable */ }
+    } catch { /* keep status cards unavailable if backend is offline */ }
+    finally { setCountsLoading(false); }
   }, []);
 
   useEffect(() => { fetchStatusCounts(); }, [fetchStatusCounts]);
+  useEffect(() => {
+    usersApi.list().then(setAccountManagers).catch(() => setAccountManagers([]));
+  }, []);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setSearch(searchInput.trim());
+      setPage(1);
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   const fetchClients = useCallback(async () => {
     setLoading(true);
@@ -342,24 +436,79 @@ function ClientsPageInner() {
         search:   search         || undefined,
         status:   statusFilter   || undefined,
         industry: industryFilter || undefined,
+        accountManagerId: accountManagerFilter || undefined,
         fromDate: fromDate       || undefined,
         toDate:   toDate         || undefined,
+        page,
+        limit,
       });
       setClients((res.data ?? []).filter((c) => String(c.status).toUpperCase() !== "LEAD"));
+      setPagination({ total: res.total, pages: Math.max(1, res.pages) });
+      setLastRefreshed(new Date());
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to load clients";
       setError(msg);
     } finally {
       setLoading(false);
     }
-  }, [search, statusFilter, industryFilter, fromDate, toDate]);
+  }, [search, statusFilter, industryFilter, accountManagerFilter, fromDate, toDate, page, limit]);
 
   useEffect(() => { fetchClients(); }, [fetchClients]);
 
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (search) params.set("search", search);
+    if (statusFilter) params.set("status", statusFilter);
+    if (industryFilter) params.set("industry", industryFilter);
+    if (accountManagerFilter) params.set("accountManagerId", accountManagerFilter);
+    if (healthFilter) params.set("health", healthFilter);
+    if (profileFilter) params.set("profile", profileFilter);
+    if (fromDate) params.set("fromDate", fromDate);
+    if (toDate) params.set("toDate", toDate);
+    if (page > 1) params.set("page", String(page));
+    if (limit !== 20) params.set("limit", String(limit));
+    router.replace(`/crm/clients${params.size ? `?${params.toString()}` : ""}`, { scroll: false });
+  }, [search, statusFilter, industryFilter, accountManagerFilter, healthFilter, profileFilter, fromDate, toDate, page, limit, router]);
+
   const total = statusCounts.Active + statusCounts.Inactive + statusCounts.Completed + statusCounts.Blacklisted;
-  const atRiskClients = clients.filter((client) => getClientHealth(client).score < 56).length;
-  const healthyClients = clients.filter((client) => getClientHealth(client).score >= 78).length;
+  const displayedClients = useMemo(() => clients.filter((client) => {
+    const score = getClientHealth(client).score;
+    if (healthFilter === "healthy" && score < 80) return false;
+    if (healthFilter === "stable" && (score < 60 || score >= 80)) return false;
+    if (healthFilter === "attention" && (score < 40 || score >= 60)) return false;
+    if (healthFilter === "risk" && score >= 40) return false;
+    if (profileFilter === "incomplete" && client.primaryEmail && (client.mobile || client.whatsapp)) return false;
+    return true;
+  }), [clients, healthFilter, profileFilter]);
+  const atRiskClients = clients.filter((client) => getClientHealth(client).score < 60).length;
+  const healthyClients = clients.filter((client) => getClientHealth(client).score >= 80).length;
   const incompleteProfiles = clients.filter((client) => !client.primaryEmail || !(client.mobile || client.whatsapp)).length;
+  const activeFilterCount = [search, statusFilter, industryFilter, accountManagerFilter, healthFilter, profileFilter, fromDate || toDate]
+    .filter(Boolean).length;
+
+  const clearFilters = () => {
+    setSearchInput("");
+    setSearch("");
+    setStatusFilter("");
+    setIndustryFilter("");
+    setAccountManagerFilter("");
+    setHealthFilter("");
+    setProfileFilter("");
+    setFromDate("");
+    setToDate("");
+    setPage(1);
+  };
+
+  const financialMetrics: FinancialMetric[] = [
+    { label: "Total Client Revenue", value: null, kind: "currency", icon: TrendingUp, tone: "bg-sky-50 text-[#0070B8]", helper: "Requires confirmed revenue aggregation from the reporting API." },
+    { label: "Amount Received", value: null, kind: "currency", icon: WalletCards, tone: "bg-emerald-50 text-emerald-700", helper: "Requires completed receipt/payment aggregation." },
+    { label: "Outstanding Amount", value: null, kind: "currency", icon: CircleDollarSign, tone: "bg-amber-50 text-amber-700", helper: "Requires invoice and payment aggregation for the selected period." },
+    { label: "Overdue Amount", value: null, kind: "currency", icon: FileClock, tone: "bg-red-50 text-red-700", helper: "Requires unpaid invoice balances with due dates before today." },
+    { label: "Pending Invoice Amount", value: null, kind: "currency", icon: Receipt, tone: "bg-amber-50 text-amber-700", helper: "Requires unpaid and partially paid invoice balances." },
+    { label: "Pending Quotation Value", value: null, kind: "currency", icon: FileText, tone: "bg-violet-50 text-violet-700", helper: "Requires pending quotation status aggregation." },
+    { label: "Average Client Value", value: null, kind: "currency", icon: BadgeIndianRupee, tone: "bg-sky-50 text-sky-700", helper: "Requires revenue divided by clients with revenue." },
+    { label: "Collection Rate", value: null, kind: "percentage", icon: UserRoundCheck, tone: "bg-emerald-50 text-emerald-700", helper: "Requires amount received divided by total invoiced." },
+  ];
 
   const INDUSTRIES: Industry[] = [
     "IT Services","Digital Marketing","Manufacturing","Healthcare",
@@ -368,33 +517,48 @@ function ClientsPageInner() {
   ];
 
   return (
-    <div className="space-y-6 p-4 lg:p-6">
-      <section className="relative overflow-hidden rounded-[28px] border border-white bg-[#061526] p-6 shadow-[0_24px_70px_rgba(15,23,42,0.16)] lg:p-7">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_18%,rgba(14,165,233,0.30),transparent_28%),radial-gradient(circle_at_90%_8%,rgba(230,0,70,0.22),transparent_24%),linear-gradient(135deg,rgba(255,255,255,0.10),transparent_42%)]" />
-        <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-sky-100">
+    <div className="space-y-3 bg-slate-50/70 p-3 lg:p-4">
+      <section className="relative overflow-visible border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="hidden" />
+        <div className="relative flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-end">
+          <div className="hidden">
+            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0070B8]">
               <Sparkles className="h-3.5 w-3.5 text-[#0EA5E9]" />
-              Goanny Client Hub
+              CRM / Clients Management
             </div>
-            <h1 className="mt-4 text-3xl font-black tracking-tight text-white lg:text-4xl">Client Relationship Center</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+            <h1 className="mt-0.5 text-xl font-black tracking-tight text-slate-950">Clients Command Center</h1>
+            <p className="hidden">
               Manage active accounts, agreements, invoices, quotations, and client health from one polished workspace.
             </p>
+            <p className="mt-0.5 text-[10px] font-medium text-slate-400">
+              {lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Waiting for first refresh"}
+            </p>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <button
-              onClick={fetchClients}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-white/12 bg-white/8 px-4 text-sm font-bold text-white backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/14"
-            >
-              <RefreshCw className="h-4 w-4" /> Refresh
-            </button>
-            <Link
-              href="/crm/clients/new"
-              className="inline-flex h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-[#063A66] shadow-lg shadow-sky-950/20 transition hover:-translate-y-0.5"
-            >
-              <Plus className="h-4 w-4" /> Add Client
-            </Link>
+          <div className="flex w-full flex-nowrap items-center gap-2">
+            <div className="flex min-w-[320px] flex-1 items-center gap-2">
+              <div className="relative min-w-[220px] flex-1">
+                <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+                <input
+                  value={searchInput}
+                  onChange={(event) => setSearchInput(event.target.value)}
+                  placeholder="Search company, contact, phone or email"
+                  aria-label="Global client search"
+                  className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
+                />
+              </div>
+              <DateRangePicker from={fromDate} to={toDate} onChange={(from, to) => { setFromDate(from); setToDate(to); setPage(1); }} />
+            </div>
+            <div className="flex shrink-0 items-center gap-2">
+              <button onClick={fetchClients} title="Refresh client data" className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-sky-200 hover:text-[#0070B8]">
+                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+              </button>
+              <span className="hidden">
+                <Upload className="h-3.5 w-3.5" /> {importing ? "Importing…" : "Import Clients"}
+              </span>
+              <Link href="/crm/clients/new" className="inline-flex h-9 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-xs font-black text-white shadow-md shadow-blue-200 transition hover:bg-blue-700">
+                <Plus className="h-3.5 w-3.5" /> Add Client
+              </Link>
+            </div>
           </div>
         </div>
       </section>
@@ -402,23 +566,24 @@ function ClientsPageInner() {
       {/* ── Stats ── */}
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
         <StatCard label="Total Clients" value={total}                      icon={Users}      color="bg-sky-50 text-[#0070B8]"
-          onClick={() => setStatusFilter("")}           active={statusFilter === ""} />
+          onClick={() => { setStatusFilter(""); setPage(1); }} active={statusFilter === ""} loading={countsLoading} helper="All non-lead client records." />
         <StatCard label="Active"         value={statusCounts.Active}       icon={UserCheck}  color="bg-emerald-50 text-emerald-600"
-          onClick={() => setStatusFilter("Active")}      active={statusFilter === "Active"} />
+          onClick={() => { setStatusFilter("Active"); setPage(1); }} active={statusFilter === "Active"} loading={countsLoading} helper="Clients with Active lifecycle status." />
         <StatCard label="Inactive"       value={statusCounts.Inactive}     icon={UserX}      color="bg-slate-100 text-slate-600"
-          onClick={() => setStatusFilter("Inactive")}    active={statusFilter === "Inactive"} />
+          onClick={() => { setStatusFilter("Inactive"); setPage(1); }} active={statusFilter === "Inactive"} loading={countsLoading} helper="Clients with Inactive lifecycle status." />
         <StatCard label="Completed"      value={statusCounts.Completed}    icon={CheckCircle2} color="bg-violet-50 text-violet-600"
-          onClick={() => setStatusFilter("Completed")}   active={statusFilter === "Completed"} />
+          onClick={() => { setStatusFilter("Completed"); setPage(1); }} active={statusFilter === "Completed"} loading={countsLoading} helper="Clients with Completed lifecycle status." />
         <StatCard label="Blacklisted"    value={statusCounts.Blacklisted}  icon={Ban}        color="bg-red-50 text-red-600"
-          onClick={() => setStatusFilter("Blacklisted")} active={statusFilter === "Blacklisted"} />
+          onClick={() => { setStatusFilter("Blacklisted"); setPage(1); }} active={statusFilter === "Blacklisted"} loading={countsLoading} helper="Clients marked Blacklisted." />
       </div>
 
-      <section className="grid gap-3 xl:grid-cols-4">
+      <section className="grid grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-5">
         {[
-          { label: "Healthy Accounts", value: healthyClients, icon: ShieldCheck, text: "Strong profile and active lifecycle", tone: "emerald" },
-          { label: "Needs Attention", value: atRiskClients, icon: AlertCircle, text: "Review inactive or weak-profile clients", tone: "red" },
-          { label: "Profile Gaps", value: incompleteProfiles, icon: Clock3, text: "Missing email or phone details", tone: "amber" },
-          { label: "Upsell Ready", value: Math.max(0, healthyClients - statusCounts.Completed), icon: TrendingUp, text: "AI suggests relationship expansion", tone: "sky" },
+          { label: "Healthy Accounts", value: healthyClients, icon: ShieldCheck, text: "Rule score 80–100 on this page", tone: "emerald", action: () => setHealthFilter("healthy") },
+          { label: "Needs Attention", value: atRiskClients, icon: AlertCircle, text: "Rule score below 60 on this page", tone: "red", action: () => setHealthFilter("attention") },
+          { label: "Profile Gaps", value: incompleteProfiles, icon: Clock3, text: "Missing email or phone details", tone: "amber", action: () => setProfileFilter("incomplete") },
+          { label: "Upsell Ready", value: null, icon: TrendingUp, text: "Revenue and engagement data required", tone: "sky", action: undefined },
+          { label: "Follow-ups Due", value: null, icon: CalendarDays, text: "Follow-up summary API required", tone: "amber", action: undefined },
         ].map((insight) => {
           const Icon = insight.icon;
           const toneClass: Record<string, string> = {
@@ -429,43 +594,64 @@ function ClientsPageInner() {
           };
 
           return (
-            <div key={insight.label} className="group rounded-[20px] border border-slate-200 bg-white p-4 shadow-[0_18px_45px_rgba(15,23,42,0.06)] transition hover:-translate-y-0.5 hover:border-sky-200">
+            <button type="button" onClick={insight.action} disabled={!insight.action} key={insight.label} className="group rounded-xl border border-slate-200 bg-white p-2.5 text-left shadow-sm transition enabled:hover:border-sky-200 disabled:cursor-default">
               <div className="flex items-start gap-3">
-                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition duration-300 group-hover:scale-110 group-hover:rotate-3 ${toneClass[insight.tone]}`}>
-                  <Icon className="h-5 w-5" />
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${toneClass[insight.tone]}`}>
+                  <Icon className="h-4 w-4" />
                 </div>
                 <div>
                   <div className="flex items-center gap-2">
-                    <p className="text-2xl font-black tracking-tight text-slate-950">{insight.value}</p>
-                    <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-black text-slate-500">AI</span>
+                    <p className={`text-2xl font-black tracking-tight ${insight.value === null ? "text-slate-400" : "text-slate-950"}`}>{insight.value === null ? "—" : insight.value}</p>
                   </div>
-                  <p className="text-sm font-black text-slate-800">{insight.label}</p>
-                  <p className="mt-1 text-xs font-medium text-slate-500">{insight.text}</p>
+                  <p className="text-[11px] font-black text-slate-800">{insight.label}</p>
+                  <p className="hidden">{insight.text}</p>
                 </div>
               </div>
-            </div>
+            </button>
           );
         })}
       </section>
 
-      {/* ── Filters ── */}
-      <div className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
-        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <details className="rounded-xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-xs font-bold text-slate-600">
+          Financial summary
+          <span className="text-[10px] font-medium text-slate-400">Reporting API required · click to expand</span>
+        </summary>
+        <div className="border-t border-slate-100 p-3">
+        <div className="mb-3 flex items-end justify-between gap-4">
           <div>
-            <h2 className="text-base font-black text-slate-950">Client Filters</h2>
-            <p className="text-sm text-slate-500">Search accounts by company, contact, industry, or lifecycle status.</p>
+            <h2 className="text-base font-black text-slate-950">Financial Summary</h2>
+            <p className="text-sm text-slate-500">Selected-period client revenue and collection performance.</p>
           </div>
-          <p className="text-xs font-semibold text-slate-400">{clients.length} clients loaded</p>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold text-slate-500">Awaiting /api/reports/client-summary</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {financialMetrics.map((metric) => <FinancialMetricCard key={metric.label} metric={metric} />)}
+        </div>
+        </div>
+      </details>
+
+      {/* ── Filters ── */}
+      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+        <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h2 className="text-sm font-black text-slate-950">Client Filters</h2>
+            <p className="text-xs text-slate-500">Search and narrow the client directory.</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black text-[#0070B8]">{activeFilterCount} active</span>
+            <p className="text-xs font-semibold text-slate-400">{pagination.total.toLocaleString("en-IN")} records</p>
+          </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(260px,1.5fr)_1fr_1fr_auto_auto_auto]">
+        <div className="flex items-center gap-2 overflow-x-auto pb-1">
         <div className="relative min-w-[200px]">
           <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
           <input
             type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search clients..."
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Company, contact, phone or email"
             className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100"
           />
         </div>
@@ -474,7 +660,7 @@ function ClientsPageInner() {
           <Filter className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             className="h-11 w-full appearance-none rounded-2xl border border-slate-200 bg-white pl-8 pr-9 text-sm font-semibold text-slate-600 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
           >
             <option value="">All Status</option>
@@ -488,7 +674,7 @@ function ClientsPageInner() {
         <div className="relative">
           <select
             value={industryFilter}
-            onChange={(e) => setIndustryFilter(e.target.value)}
+            onChange={(e) => { setIndustryFilter(e.target.value); setPage(1); }}
             className="h-11 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-600 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
           >
             <option value="">All Industries</option>
@@ -497,26 +683,56 @@ function ClientsPageInner() {
           <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
         </div>
 
-        <input
-          type="date"
-          value={fromDate}
-          onChange={(e) => setFromDate(e.target.value)}
-          className="h-11 rounded-2xl border border-slate-200 px-3 text-sm font-semibold text-slate-600 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
-        />
-        <input
-          type="date"
-          value={toDate}
-          onChange={(e) => setToDate(e.target.value)}
-          className="h-11 rounded-2xl border border-slate-200 px-3 text-sm font-semibold text-slate-600 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
-        />
+        <div className="relative">
+          <select value={accountManagerFilter} onChange={(event) => { setAccountManagerFilter(event.target.value); setPage(1); }} className="h-11 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-600 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100">
+            <option value="">All Account Managers</option>
+            {accountManagers.map((manager) => <option key={manager.id} value={manager.id}>{manager.name}</option>)}
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+        </div>
+
+        <div className="relative">
+          <select value={healthFilter} onChange={(event) => setHealthFilter(event.target.value)} className="h-11 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-600 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100">
+            <option value="">All Health Scores</option>
+            <option value="healthy">Healthy (80–100)</option>
+            <option value="stable">Stable (60–79)</option>
+            <option value="attention">Needs Attention (40–59)</option>
+            <option value="risk">At Risk (0–39)</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+        </div>
+
+        <div className="relative">
+          <select value={profileFilter} onChange={(event) => setProfileFilter(event.target.value)} className="h-11 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-600 outline-none focus:border-sky-300 focus:ring-4 focus:ring-sky-100">
+            <option value="">All Profile Completeness</option>
+            <option value="incomplete">Incomplete Profiles</option>
+          </select>
+          <ChevronDown className="pointer-events-none absolute right-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
+        </div>
 
         <button
           onClick={fetchClients}
           className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-[#0070B8]"
         >
-          <RefreshCw className="h-3.5 w-3.5" /> Refresh
+          <Filter className="h-3.5 w-3.5" /> Apply Filters
+        </button>
+        <button onClick={clearFilters} disabled={activeFilterCount === 0} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+          <X className="h-3.5 w-3.5" /> Clear All
         </button>
       </div>
+        {activeFilterCount > 0 && (
+          <div className="mt-4 flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+            {[
+              search && `Search: ${search}`,
+              statusFilter && `Status: ${statusFilter}`,
+              industryFilter && `Industry: ${industryFilter}`,
+              accountManagerFilter && `Owner: ${accountManagers.find((user) => user.id === accountManagerFilter)?.name ?? "Selected"}`,
+              healthFilter && `Health: ${healthFilter}`,
+              profileFilter && "Profile: Incomplete",
+              (fromDate || toDate) && `Created: ${fromDate || "…"} to ${toDate || "…"}`,
+            ].filter(Boolean).map((chip) => <span key={String(chip)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{chip}</span>)}
+          </div>
+        )}
       </div>
 
       {/* ── Table ── */}
@@ -527,8 +743,8 @@ function ClientsPageInner() {
             <p className="text-sm text-slate-500">Click any row to preview relationship details.</p>
           </div>
           <span className="inline-flex items-center gap-2 rounded-full bg-sky-50 px-3 py-1 text-xs font-black text-[#0070B8]">
-            <Sparkles className="h-3.5 w-3.5" />
-            AI health scoring enabled
+            <ShieldCheck className="h-3.5 w-3.5" />
+            Rule-based health score
           </span>
         </div>
         {error ? (
@@ -542,19 +758,21 @@ function ClientsPageInner() {
             </button>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50">
+          <div className="max-h-[calc(100vh-410px)] min-h-[280px] overflow-auto">
+            <table className="w-full min-w-[900px] text-sm xl:min-w-[1200px] 2xl:min-w-[1450px]">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 shadow-sm">
                 <tr className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                   <th className="px-5 py-4 text-left font-black whitespace-nowrap">Code</th>
                   <th className="px-5 py-4 text-left font-black whitespace-nowrap">Company Name</th>
                   <th className="px-5 py-4 text-left font-black whitespace-nowrap">Contact Person</th>
-                  <th className="px-5 py-4 text-left font-black whitespace-nowrap">Mobile</th>
-                  <th className="px-5 py-4 text-left font-black whitespace-nowrap">Email</th>
-                  <th className="px-5 py-4 text-left font-black whitespace-nowrap">Industry</th>
+                  <th className="hidden px-5 py-4 text-left font-black whitespace-nowrap 2xl:table-cell">Mobile</th>
+                  <th className="hidden px-5 py-4 text-left font-black whitespace-nowrap 2xl:table-cell">Email</th>
+                  <th className="hidden px-5 py-4 text-left font-black whitespace-nowrap xl:table-cell">Industry</th>
                   <th className="px-5 py-4 text-center font-black whitespace-nowrap">Status</th>
                   <th className="px-5 py-4 text-left font-black whitespace-nowrap">Health</th>
-                  <th className="px-5 py-4 text-left font-black whitespace-nowrap">Created</th>
+                  <th className="px-5 py-4 text-left font-black whitespace-nowrap">Account Manager</th>
+                  <th className="hidden px-5 py-4 text-right font-black whitespace-nowrap xl:table-cell">Outstanding</th>
+                  <th className="hidden px-5 py-4 text-left font-black whitespace-nowrap xl:table-cell">Created</th>
                   <th className="px-5 py-4 text-center font-black whitespace-nowrap">Actions</th>
                 </tr>
               </thead>
@@ -565,9 +783,9 @@ function ClientsPageInner() {
                     <SkeletonRow />
                     <SkeletonRow />
                   </>
-                ) : clients.length === 0 ? (
+                ) : displayedClients.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="py-16 text-center">
+                    <td colSpan={12} className="py-16 text-center">
                       <div className="flex flex-col items-center gap-3 text-slate-400">
                         <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-sky-50 text-[#0070B8]">
                           <Users className="h-8 w-8" />
@@ -584,7 +802,7 @@ function ClientsPageInner() {
                     </td>
                   </tr>
                 ) : (
-                  clients.map((client) => (
+                  displayedClients.map((client) => (
                     <tr
                       key={client.id}
                       onClick={() => setSelectedClient(client)}
@@ -595,8 +813,8 @@ function ClientsPageInner() {
                       </td>
                       <td className="px-5 py-4 whitespace-nowrap">
                         <div className="flex items-center gap-3">
-                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0070B8] to-[#0EA5E9] text-white shadow-lg shadow-sky-100 transition duration-300 group-hover:scale-105 group-hover:rotate-3">
-                            <Building2 className="h-5 w-5" />
+                          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0070B8] to-[#0EA5E9] text-xs font-black text-white shadow-lg shadow-sky-100 transition duration-300 group-hover:scale-105 group-hover:rotate-3">
+                            {client.companyName.split(/\s+/).slice(0, 2).map((part) => part[0]).join("").toUpperCase() || "CL"}
                           </div>
                           <div>
                           <Link
@@ -610,13 +828,13 @@ function ClientsPageInner() {
                         </div>
                       </td>
                       <td className="px-5 py-4 font-semibold text-slate-700 whitespace-nowrap">{client.contactPersonName || "—"}</td>
-                      <td className="px-5 py-4 text-slate-700 whitespace-nowrap">
+                      <td className="hidden px-5 py-4 text-slate-700 whitespace-nowrap 2xl:table-cell">
                         <span className="inline-flex items-center gap-2">
                           <Phone className="h-3.5 w-3.5 text-slate-400" />
                           {client.mobile || "—"}
                         </span>
                       </td>
-                      <td className="max-w-[220px] truncate px-5 py-4 text-slate-700">
+                      <td className="hidden max-w-[220px] truncate px-5 py-4 text-slate-700 2xl:table-cell">
                         <span className="inline-flex min-w-0 items-center gap-2">
                           <Mail className="h-3.5 w-3.5 shrink-0 text-slate-400" />
                           <span className="truncate">{client.primaryEmail || "—"}</span>
@@ -631,7 +849,18 @@ function ClientsPageInner() {
                       <td className="px-5 py-4">
                         <HealthBadge client={client} />
                       </td>
-                      <td className="px-5 py-4 text-xs text-slate-500 whitespace-nowrap">
+                      <td className="hidden px-5 py-4 text-slate-600 whitespace-nowrap xl:table-cell">
+                        <span className="inline-flex items-center gap-2">
+                          <UserRoundCheck className="h-3.5 w-3.5 text-slate-400" />
+                          {client.accountManagerName || "Unassigned"}
+                        </span>
+                      </td>
+                      <td className="hidden px-5 py-4 text-right font-bold whitespace-nowrap xl:table-cell">
+                        <span className={Number(client.outstandingBalance) > 0 ? "text-amber-700" : "text-slate-500"}>
+                          {new Intl.NumberFormat("en-IN", { style: "currency", currency: ERP_CURRENCY, maximumFractionDigits: 0 }).format(Number(client.outstandingBalance) || 0)}
+                        </span>
+                      </td>
+                      <td className="hidden px-5 py-4 text-xs text-slate-500 whitespace-nowrap xl:table-cell">
                         <span className="inline-flex items-center gap-2">
                           <CalendarDays className="h-3.5 w-3.5 text-slate-400" />
                           {client.createdAt
@@ -649,6 +878,26 @@ function ClientsPageInner() {
             </table>
           </div>
         )}
+        <div className="flex flex-col gap-3 border-t border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs font-semibold text-slate-500">
+            {pagination.total === 0
+              ? "No records"
+              : `Showing ${(page - 1) * limit + 1}–${Math.min(page * limit, pagination.total)} of ${pagination.total.toLocaleString("en-IN")}`}
+          </p>
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold text-slate-500" htmlFor="client-page-size">Rows</label>
+            <select id="client-page-size" value={limit} onChange={(event) => { setLimit(Number(event.target.value)); setPage(1); }} className="h-9 rounded-xl border border-slate-200 bg-white px-2 text-xs font-semibold text-slate-600">
+              {[10, 20, 50, 100].map((size) => <option key={size} value={size}>{size}</option>)}
+            </select>
+            <button type="button" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={page <= 1 || loading} title="Previous page" className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span className="min-w-20 text-center text-xs font-bold text-slate-600">Page {page} of {pagination.pages}</span>
+            <button type="button" onClick={() => setPage((current) => Math.min(pagination.pages, current + 1))} disabled={page >= pagination.pages || loading} title="Next page" className="rounded-xl border border-slate-200 p-2 text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
 
       {selectedClient ? (

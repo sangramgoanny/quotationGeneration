@@ -2,8 +2,8 @@
 
 import { usePathname } from "next/navigation";
 import Sidebar from "./Sidebar";
-import { ReactNode } from "react";
-import { getUser } from "@/utils/token";
+import { ReactNode, useSyncExternalStore } from "react";
+import { getToken, getUser } from "@/utils/token";
 import { Bell } from "lucide-react";
 
 const PAGE_TITLES: Record<string, string> = {
@@ -13,6 +13,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/quotation":        "Quotations",
   "/contract":         "Agreements",
   "/invoice":          "Invoices",
+  "/invoice/new":      "Create Invoice",
   "/receipt":          "Receipts",
   "/finance/expenses": "Expenses",
   "/projects":         "Projects",
@@ -24,14 +25,21 @@ const PAGE_TITLES: Record<string, string> = {
 
 const NO_SIDEBAR_PREFIXES = ["/login", "/admin", "/crm/leads-2"];
 
+function subscribeToTokenChanges(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
 export default function ConditionalLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const showSidebar = !NO_SIDEBAR_PREFIXES.some((p) => pathname.startsWith(p));
+  const token = useSyncExternalStore(subscribeToTokenChanges, getToken, () => null);
 
   if (!showSidebar) return <>{children}</>;
 
-  const user     = getUser();
+  const user     = token ? getUser() : null;
   const title    = PAGE_TITLES[pathname] ?? "Goanny ERP";
+  const isClientsCommandCenter = pathname === "/crm/clients";
   const initials = user?.email?.[0]?.toUpperCase() ?? "U";
   const username = user?.email?.split("@")[0] ?? "User";
 
@@ -41,8 +49,19 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Top header */}
-        <header className="h-14 bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0 shadow-sm">
-          <h1 className="text-[15px] font-semibold text-slate-800">{title}</h1>
+        <header className={`${isClientsCommandCenter ? "h-16" : "h-14"} bg-white border-b border-slate-200 px-6 flex items-center justify-between shrink-0 shadow-sm`}>
+          {isClientsCommandCenter ? (
+            <div>
+              <p className="text-[9px] font-bold uppercase tracking-[0.14em] text-[#0070B8]">
+                CRM / Clients Management
+              </p>
+              <h1 className="mt-0.5 text-[17px] font-black tracking-tight text-slate-900">
+                Clients Command Center
+              </h1>
+            </div>
+          ) : (
+            <h1 className="text-[15px] font-semibold text-slate-800">{title}</h1>
+          )}
           <div className="flex items-center gap-3">
             <button className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
               <Bell className="w-4 h-4" />

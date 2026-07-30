@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useRef, useCallback, ChangeEvent } from "react";
+import React, { useState, useRef, useCallback, useMemo, ChangeEvent } from "react";
 import {
   User, Building2, Mail, Phone, MapPin, FileText, Briefcase,
   Globe, Landmark, Users, Upload, StickyNote, Tag, X, Plus,
@@ -21,6 +21,7 @@ interface Props {
   isLoading: boolean;
   mode: "create" | "edit";
   onCancel?: () => void;
+  serverErrors?: Partial<Record<string, string>>;
 }
 
 // ─── Service lists ────────────────────────────────────────────────────────────
@@ -331,7 +332,7 @@ function ContactPersonCard({
 
 // ─── Main ClientForm ──────────────────────────────────────────────────────────
 
-export default function ClientForm({ initialData, onSubmit, isLoading, mode, onCancel }: Props) {
+export default function ClientForm({ initialData, onSubmit, isLoading, mode, onCancel, serverErrors }: Props) {
   const [form, setForm] = useState<Client>(() => ({
     ...emptyClient(),
     ...initialData,
@@ -345,7 +346,8 @@ export default function ClientForm({ initialData, onSubmit, isLoading, mode, onC
     digitalMarketingServices: initialData?.digitalMarketingServices ?? [],
   }));
 
-  const [errors, setErrors] = useState<Partial<Record<string, string>>>({});
+  const [clientErrors, setErrors] = useState<Partial<Record<string, string>>>({});
+  const errors = useMemo(() => ({ ...(serverErrors ?? {}), ...clientErrors }), [serverErrors, clientErrors]);
   const [activeSection, setActiveSection] = useState("basic");
 
   // Contact person editing state
@@ -383,9 +385,7 @@ export default function ClientForm({ initialData, onSubmit, isLoading, mode, onC
   const validate = (): boolean => {
     const e: Partial<Record<string, string>> = {};
     if (!form.companyName.trim()) e.companyName = "Company name is required";
-    if (!form.mobile.trim()) e.mobile = "Mobile number is required";
-    if (!form.primaryEmail.trim()) e.primaryEmail = "Primary email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.primaryEmail)) e.primaryEmail = "Invalid email address";
+    if (form.primaryEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.primaryEmail)) e.primaryEmail = "Invalid email address";
     if (form.gstRegistered && form.gstNumber && form.gstNumber.length !== 15)
       e.gstNumber = "GST number must be 15 characters";
     if (form.panNumber && form.panNumber.length !== 10)
@@ -568,7 +568,7 @@ export default function ClientForm({ initialData, onSubmit, isLoading, mode, onC
                       error={!!errors.companyName}
                     />
                   </Field>
-                  <Field label="Primary Contact Person" required error={errors.contactPersonName}>
+                  <Field label="Primary Contact Person" error={errors.contactPersonName}>
                     <Input
                       value={form.contactPersonName}
                       onChange={(v) => set("contactPersonName", v)}

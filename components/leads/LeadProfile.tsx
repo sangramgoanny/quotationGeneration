@@ -4,7 +4,7 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle, Building2, Calendar, CheckCircle, Edit, FileText,
+  AlertCircle, Building2, Calendar, CheckCircle, Edit,
   Globe, Mail, MapPin, Phone, Tag, User, Users,
 } from "lucide-react";
 import { clientsApi } from "@/lib/api/clients";
@@ -146,13 +146,6 @@ export default function LeadProfile({ leadId }: Props) {
               className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
             >
               <Users className="w-4 h-4" /> {converting ? "Converting..." : "Convert"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setTriggerCreate(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
-            >
-              <FileText className="w-4 h-4" /> Quotation
             </button>
             <Link
               href={`/crm/clients/${leadId}/edit`}

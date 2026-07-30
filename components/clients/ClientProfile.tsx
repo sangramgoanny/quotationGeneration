@@ -17,7 +17,7 @@ import {
   type ProjectRecord,
   type ActivityItem,
 } from "@/lib/api/clients";
-import { quotationsApi, type QuotationListItem, type QuotationStatus } from "@/lib/api/quotations";
+import { quotationsApi, type Quotation, type QuotationListItem, type QuotationStatus } from "@/lib/api/quotations";
 import { agreementsApi, type AgreementListItem, type AgreementStatus } from "@/lib/api/agreements";
 import type { Client, ClientDocument, ContactPerson } from "@/types/client";
 
@@ -25,6 +25,7 @@ import type { Client, ClientDocument, ContactPerson } from "@/types/client";
 
 interface Props {
   clientId: string;
+  initialTab?: string;
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -211,6 +212,23 @@ function ClientQuotationsTab({ clientId, clientName }: { clientId: string; clien
   const [quotations, setQuotations] = useState<QuotationListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [selectedQuotation, setSelectedQuotation] = useState<Quotation | null>(null);
+  const [viewLoading, setViewLoading] = useState(false);
+
+  const openQuotation = async (id: string) => {
+    setViewLoading(true);
+    try { setSelectedQuotation(await quotationsApi.get(id)); }
+    catch (err) { setError(err instanceof Error ? err.message : "Failed to load quotation"); }
+    finally { setViewLoading(false); }
+  };
+
+  const downloadQuotation = async (id: string) => {
+    try {
+      const quotation = await quotationsApi.get(id);
+      const { apiToRecord, downloadPDF } = await import("@/components/quotations/QuotationsPage");
+      await downloadPDF(apiToRecord(quotation));
+    } catch (err) { setError(err instanceof Error ? err.message : "Failed to download quotation"); }
+  };
 
   useEffect(() => {
     quotationsApi.listByClient(clientId, { limit: 50 })
@@ -260,7 +278,7 @@ function ClientQuotationsTab({ clientId, clientName }: { clientId: string; clien
               {quotations.map(q => (
                 <tr key={q.id} className="hover:bg-slate-50 transition-colors">
                   <td className="px-4 py-3 font-mono text-xs font-semibold text-indigo-600 whitespace-nowrap">
-                    {q.quotationNumber}
+                    {q.quotationNumber || "—"}
                   </td>
                   <td className="px-4 py-3 text-slate-700 max-w-[200px] truncate">{q.subject}</td>
                   <td className="px-4 py-3 text-slate-500 whitespace-nowrap hidden sm:table-cell">
@@ -283,19 +301,57 @@ function ClientQuotationsTab({ clientId, clientName }: { clientId: string; clien
                       >
                         <Edit className="w-3.5 h-3.5" />
                       </Link>
-                      <Link
-                        href={`/quotation?highlight=${q.id}`}
+                      <button
+                        type="button"
+                        onClick={() => openQuotation(q.id)}
                         className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
-                        title="View in Quotations"
+                        title="View quotation"
                       >
                         <Eye className="w-3.5 h-3.5" />
-                      </Link>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => downloadQuotation(q.id)}
+                        className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+                        title="Download quotation"
+                      >
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+      {(selectedQuotation || viewLoading) && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true">
+          <div className="max-h-[85vh] w-full max-w-2xl overflow-y-auto rounded-2xl bg-white shadow-xl">
+            <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-6 py-4">
+              <div><h2 className="text-lg font-bold text-slate-900">Quotation Preview</h2><p className="text-xs text-slate-500">{selectedQuotation?.quotationNumber ?? "Loading…"}</p></div>
+              <button type="button" onClick={() => setSelectedQuotation(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100" aria-label="Close preview"><XCircle className="h-5 w-5" /></button>
+            </div>
+            {viewLoading ? <LoadingSpinner /> : selectedQuotation && (
+              <div className="bg-white p-6 text-sm text-slate-700">
+                <div className="space-y-6">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <div><p className="text-[10px] font-bold uppercase text-slate-400">Quotation</p><p className="font-mono font-semibold">{selectedQuotation.quotationNumber}</p></div>
+                    <div><p className="text-[10px] font-bold uppercase text-slate-400">Date</p><p className="font-semibold">{new Date(selectedQuotation.date).toLocaleDateString("en-IN")}</p></div>
+                    <div><p className="text-[10px] font-bold uppercase text-slate-400">Status</p><QuotStatusBadge status={selectedQuotation.status} /></div>
+                  </div>
+                  <div className="rounded-xl border-l-4 border-[#1C3660] bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase text-[#1C3660]">Bill To</p><p className="text-base font-bold text-slate-900">{selectedQuotation.clientName}</p><p className="whitespace-pre-line text-xs text-slate-500">{selectedQuotation.clientAddress}</p></div>
+                  <div><p className="text-xs font-bold uppercase text-[#1C3660]">{selectedQuotation.subject}</p>{selectedQuotation.introParagraph && <p className="mt-2 whitespace-pre-line leading-relaxed">{selectedQuotation.introParagraph}</p>}</div>
+                  {selectedQuotation.scope.length > 0 && <div><p className="mb-2 text-xs font-bold uppercase text-[#1C3660]">Scope of Work</p><div className="space-y-2">{selectedQuotation.scope.map(section => <div key={section.id ?? section.title} className="rounded-lg border border-slate-200 p-3"><p className="font-semibold text-slate-900">{section.title}</p><ul className="mt-1 list-disc pl-5 text-xs text-slate-600">{section.details.map(detail => <li key={detail}>{detail}</li>)}</ul></div>)}</div></div>}
+                  {selectedQuotation.timeline.length > 0 && <div><p className="mb-2 text-xs font-bold uppercase text-[#1C3660]">Project Timeline</p><div className="overflow-hidden rounded-lg border border-slate-200"><table className="w-full"><tbody>{selectedQuotation.timeline.map(phase => <tr key={phase.id ?? phase.phase} className="border-b border-slate-100 last:border-0"><td className="px-3 py-2 font-medium">{phase.phase}</td><td className="px-3 py-2 text-slate-500">{phase.description}</td><td className="px-3 py-2 text-right">{phase.duration} {phase.unit}</td></tr>)}</tbody></table></div></div>}
+                  <div><p className="mb-2 text-xs font-bold uppercase text-[#1C3660]">Commercial of Services</p><div className="overflow-hidden rounded-lg border border-slate-200"><table className="w-full"><tbody>{selectedQuotation.pricing.map(item => <tr key={item.id ?? item.description} className="border-b border-slate-100 last:border-0"><td className="px-4 py-3">{item.description}</td><td className="px-4 py-3 text-right font-medium">{new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(item.cost) || 0)}</td></tr>)}</tbody></table></div><p className="mt-3 text-right text-base font-bold text-slate-900">Total: {new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR" }).format(Number(selectedQuotation.totalAmount) || 0)}</p></div>
+                  <div className="grid gap-4 sm:grid-cols-2">{selectedQuotation.paymentTerms.length > 0 && <div><p className="text-xs font-bold uppercase text-[#1C3660]">Payment Terms</p><ol className="mt-2 list-decimal pl-5 text-xs">{selectedQuotation.paymentTerms.map(term => <li key={term.id ?? term.term}>{term.term}</li>)}</ol></div>}{selectedQuotation.termsConditions.length > 0 && <div><p className="text-xs font-bold uppercase text-[#1C3660]">Terms & Conditions</p><ol className="mt-2 list-decimal pl-5 text-xs">{selectedQuotation.termsConditions.map(term => <li key={term.id ?? term.term}>{term.term}</li>)}</ol></div>}</div>
+                  {selectedQuotation.note && <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800"><strong>Note:</strong> {selectedQuotation.note}</div>}
+                  <div className="flex justify-end"><button type="button" onClick={() => downloadQuotation(selectedQuotation.id)} className="inline-flex items-center gap-2 rounded-lg bg-[#1C3660] px-4 py-2 text-xs font-semibold text-white"><Download className="h-4 w-4" /> Download PDF</button></div>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -422,11 +478,13 @@ function ClientAgreementsTab({ clientId, clientName }: { clientId: string; clien
 
 // ─── ClientProfile ────────────────────────────────────────────────────────────
 
-export default function ClientProfile({ clientId }: Props) {
+export default function ClientProfile({ clientId, initialTab }: Props) {
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
+  const [activeTab, setActiveTab] = useState<TabId>(() =>
+    TABS.some((tab) => tab.id === initialTab) ? initialTab as TabId : "overview",
+  );
 
   // Lazy tab data
   const [contacts,   setContacts]   = useState<ContactPerson[] | null>(null);
@@ -615,6 +673,8 @@ export default function ClientProfile({ clientId }: Props) {
             >
               <Edit className="w-3.5 h-3.5" /> Edit
             </Link>
+            {/*
+            Header quotation and invoice actions are intentionally hidden.
             <Link
               href={`/quotation?clientId=${clientId}`}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors"
@@ -622,11 +682,12 @@ export default function ClientProfile({ clientId }: Props) {
               <FileText className="w-3.5 h-3.5" /> Quotation
             </Link>
             <Link
-              href={`/invoice?clientId=${clientId}`}
+              href={`/invoice/new?clientId=${clientId}`}
               className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
             >
               <Receipt className="w-3.5 h-3.5" /> Invoice
             </Link>
+            */}
           </div>
         </div>
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -992,7 +1053,7 @@ export default function ClientProfile({ clientId }: Props) {
                 <div className="space-y-3">
                   <div className="flex justify-end">
                     <Link
-                      href={`/invoice?clientId=${clientId}`}
+                      href={`/invoice/new?clientId=${clientId}`}
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
                     >
                       <Plus className="w-3.5 h-3.5" /> New Invoice
@@ -1002,7 +1063,7 @@ export default function ClientProfile({ clientId }: Props) {
                     <EmptyState
                       message="No invoices found"
                       action={
-                        <SmallActionLink href={`/invoice?clientId=${clientId}`}>
+                        <SmallActionLink href={`/invoice/new?clientId=${clientId}`}>
                           <Plus className="w-3.5 h-3.5" /> New Invoice
                         </SmallActionLink>
                       }
@@ -1024,7 +1085,7 @@ export default function ClientProfile({ clientId }: Props) {
                         <tbody className="divide-y divide-slate-100">
                           {invoices.map((inv) => (
                             <tr key={inv.id} className="hover:bg-slate-50">
-                              <td className="px-4 py-3 font-medium text-indigo-600">{inv.invoiceNumber}</td>
+                              <td className="px-4 py-3 font-medium text-indigo-600">{inv.invoiceNumber || "—"}</td>
                               <td className="px-4 py-3 text-slate-600">{formatDate(inv.date)}</td>
                               <td className="px-4 py-3 text-right text-slate-800">{formatCurrency(inv.amount)}</td>
                               <td className="px-4 py-3 text-right text-green-600">{formatCurrency(inv.paid)}</td>

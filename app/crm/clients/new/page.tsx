@@ -6,22 +6,26 @@ import Link from "next/link";
 import { ArrowLeft, AlertCircle } from "lucide-react";
 import ClientForm from "@/components/clients/ClientForm";
 import { clientsApi } from "@/lib/api/clients";
+import { ApiRequestError } from "@/lib/api/request";
 import type { Client } from "@/types/client";
 
 export default function NewClientPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const handleSubmit = async (data: Client) => {
     setIsLoading(true);
     setError(null);
+    setFieldErrors({});
     try {
       const created = await clientsApi.create(data);
       router.push(`/crm/clients/${created.id}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to create client";
       setError(msg);
+      if (e instanceof ApiRequestError) setFieldErrors(e.fieldErrors);
       setIsLoading(false);
     }
   };
@@ -58,6 +62,7 @@ export default function NewClientPage() {
         <ClientForm
           mode="create"
           isLoading={isLoading}
+          serverErrors={fieldErrors}
           onSubmit={handleSubmit}
           onCancel={() => router.push("/crm/clients")}
         />

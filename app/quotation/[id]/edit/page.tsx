@@ -168,7 +168,11 @@ export default function EditQuotationPage() {
       };
 
       await quotationsApi.update(id, payload);
-      router.push("/quotation");
+      router.push(
+        form.clientId
+          ? `/crm/clients/${form.clientId}?tab=quotations`
+          : "/quotation",
+      );
     } catch (err) {
       setApiError(err instanceof Error ? err.message : "Failed to save changes");
     } finally {

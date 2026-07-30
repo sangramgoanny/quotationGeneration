@@ -2,6 +2,12 @@
 
 import { useState, useEffect } from "react";
 import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { ArrowLeft, Building2, Download, FileText, Plus, ReceiptText, Save, WalletCards } from "lucide-react";
+import { clientsApi } from "@/lib/api/clients";
+import { invoicesApi } from "@/lib/api/invoices";
 
 const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
   "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
@@ -42,22 +48,41 @@ const formatDate = (dateString) => {
   });
 };
 
-const generateInvoiceNumber = (clientName, serial) => {
-  const clientShort = clientName
-    ? clientName.replace(/[^A-Za-z]/g, "").substring(0, 2).toUpperCase()
-    : "CL";
-  const today = new Date();
-  const datePart =
-    String(today.getDate()).padStart(2, "0") +
-    String(today.getMonth() + 1).padStart(2, "0") +
-    today.getFullYear();
-  const serialPart = serial ? String(serial).padStart(3, "0") : "001";
-  return `GO/${clientShort}/INV/${datePart}/${serialPart}`;
+const getClientBillingDetails = (client) => {
+  const billingParts = [
+    client.billingLine1,
+    client.billingLine2,
+    client.billingCity,
+    client.billingState,
+    client.billingCountry,
+    client.billingPincode,
+  ].filter(Boolean);
+  const shippingParts = [
+    client.shippingLine1,
+    client.shippingLine2,
+    client.shippingCity,
+    client.shippingState,
+    client.shippingCountry,
+    client.shippingPincode,
+  ].filter(Boolean);
+  return {
+    clientName: client.companyName || "",
+    clientAddress: (billingParts.length ? billingParts : shippingParts).join(", "),
+    clientEmail: client.primaryEmail || client.secondaryEmail || "",
+    clientPhone: client.mobile || client.phone || client.whatsapp || "",
+  };
 };
 
 export default function InvoiceGenerator() {
+  const router = useRouter();
+  const [clients, setClients] = useState([]);
+  const [selectedClientId, setSelectedClientId] = useState("");
+  const [clientLoading, setClientLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [savedInvoice, setSavedInvoice] = useState(null);
   const [invoice, setInvoice] = useState({
-    serial: "",
+    quotationId: "",
     date: new Date().toISOString().split("T")[0],
     dueDate: "",
     fromName: "Goanny Technologies Pvt Ltd",
@@ -78,6 +103,68 @@ export default function InvoiceGenerator() {
   });
 
   const set = (key, value) => setInvoice((prev) => ({ ...prev, [key]: value }));
+
+  useEffect(() => {
+    let active = true;
+    clientsApi.list({ limit: 100 })
+      .then((result) => result.data ?? [])
+      .then((records) => {
+        if (!active) return;
+        setClients(records);
+        const params = new URLSearchParams(window.location.search);
+        const clientId = params.get("clientId");
+        const quotationId = params.get("quotationId");
+        if (quotationId) setInvoice((previous) => ({ ...previous, quotationId }));
+        const client = records.find((record) => record.id === clientId);
+        if (client) {
+          setSelectedClientId(client.id);
+          clientsApi.get(client.id)
+            .then((fullClient) => {
+              if (active) setInvoice((previous) => ({ ...previous, ...getClientBillingDetails(fullClient) }));
+            })
+            .catch(() => {
+              if (active) setInvoice((previous) => ({ ...previous, ...getClientBillingDetails(client) }));
+            });
+        }
+      })
+      .catch((error) => {
+        if (active) setSaveError(error instanceof Error ? error.message : "Unable to load clients");
+      });
+    return () => { active = false; };
+  }, []);
+
+  const populateClientDetails = (client) => {
+    setInvoice((previous) => ({
+      ...previous,
+      ...getClientBillingDetails(client),
+    }));
+  };
+
+  const selectClient = async (client) => {
+    setSelectedClientId(client?.id || "");
+    if (!client) {
+      setInvoice((previous) => ({
+        ...previous,
+        clientName: "",
+        clientAddress: "",
+        clientEmail: "",
+        clientPhone: "",
+      }));
+      return;
+    }
+
+    setClientLoading(true);
+    setSaveError("");
+    try {
+      const fullClient = await clientsApi.get(client.id);
+      populateClientDetails(fullClient);
+    } catch (error) {
+      populateClientDetails(client);
+      setSaveError(error instanceof Error ? error.message : "Unable to load the complete client address");
+    } finally {
+      setClientLoading(false);
+    }
+  };
 
   const addItem = () =>
     set("items", [...invoice.items, { description: "", qty: 1, rate: "" }]);
@@ -119,12 +206,75 @@ export default function InvoiceGenerator() {
   const totalPaid = invoice.payments.reduce((sum, p) => sum + (parseFloat(p.amount) || 0), 0);
   const balanceDue = total - totalPaid;
 
+  const saveInvoice = async () => {
+    setSaveError("");
+    if (!selectedClientId) {
+      setSaveError("Select a client before saving the invoice.");
+      return;
+    }
+    if (!invoice.date) {
+      setSaveError("Select an invoice date.");
+      return;
+    }
+    if (invoice.dueDate && invoice.dueDate < invoice.date) {
+      setSaveError("The due date cannot be earlier than the invoice date.");
+      return;
+    }
+    const invalidItem = invoice.items.find(
+      (item) => !item.description.trim() || Number(item.qty) <= 0 || Number(item.rate) <= 0
+    );
+    if (invalidItem) {
+      setSaveError("Every invoice item requires a description, quantity greater than zero, and a valid rate.");
+      return;
+    }
+    if (total <= 0) {
+      setSaveError("Add at least one invoice item with a valid quantity and rate.");
+      return;
+    }
+    if (totalPaid > total) {
+      setSaveError("Recorded payments cannot exceed the invoice total.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const created = await invoicesApi.create({
+        clientId: selectedClientId,
+        quotationId: invoice.quotationId || null,
+        date: invoice.date,
+        dueDate: invoice.dueDate || null,
+        amount: total,
+        paid: totalPaid,
+        status: totalPaid >= total ? "PAID" : totalPaid > 0 ? "PARTIALLY_PAID" : "DRAFT",
+        notes: invoice.notes || undefined,
+      });
+      setSavedInvoice(created);
+      router.refresh();
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : "Unable to save invoice");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const generatePDF = async () => {
+    if (!savedInvoice?.invoiceNumber) {
+      setSaveError("Save the invoice first. The invoice number is assigned by the backend.");
+      return;
+    }
     const doc = new jsPDF("p", "mm", "a4");
 
     const img = new Image();
     img.src = "/letterhead.jpg";
-    await new Promise((res) => (img.onload = res));
+    await new Promise((resolve) => {
+      img.onload = resolve;
+      img.onerror = resolve;
+    });
+    const stamp = new Image();
+    stamp.src = "/goanny_stamp.png";
+    await new Promise((resolve) => {
+      stamp.onload = resolve;
+      stamp.onerror = resolve;
+    });
 
     const LEFT = 20;
     const RIGHT = 190;
@@ -135,7 +285,11 @@ export default function InvoiceGenerator() {
     let y;
 
     const addBackground = () => {
-      doc.addImage(img, "JPEG", 0, 0, 210, 297);
+      if (img.naturalWidth) doc.addImage(img, "JPEG", 0, 0, 210, 297, "invoice-letterhead", "FAST");
+    };
+
+    const addBackgroundToAutoTablePage = () => {
+      if (doc.getCurrentPageInfo().pageNumber > 1) addBackground();
     };
 
     const newPage = () => {
@@ -165,24 +319,25 @@ export default function InvoiceGenerator() {
     y += 8;
 
     // ── INVOICE META ──
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.text(
-      `Invoice No: ${generateInvoiceNumber(invoice.clientName, invoice.serial)}`,
-      LEFT,
-      y
-    );
-    doc.setFont("helvetica", "normal");
-    doc.text(`Date: ${formatDate(invoice.date)}`, RIGHT, y, { align: "right" });
-    y += 6;
-
-    if (invoice.dueDate) {
-      doc.text(`Due Date: ${formatDate(invoice.dueDate)}`, RIGHT, y, {
-        align: "right",
-      });
-    }
-
-    y += 8;
+    doc.setFillColor(239, 246, 255);
+    doc.setDrawColor(186, 230, 253);
+    doc.roundedRect(LEFT, y, CONTENT_WIDTH, 19, 2, 2, "FD");
+    const metaColumns = [
+      { x: LEFT + 5, label: "INVOICE NUMBER", value: savedInvoice.invoiceNumber },
+      { x: 105, label: "INVOICE DATE", value: formatDate(invoice.date) },
+      { x: 150, label: "DUE DATE", value: invoice.dueDate ? formatDate(invoice.dueDate) : "Not specified" },
+    ];
+    metaColumns.forEach((column) => {
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(7.5);
+      doc.setTextColor(71, 85, 105);
+      doc.text(column.label, column.x, y + 6);
+      doc.setFontSize(9);
+      doc.setTextColor(15, 23, 42);
+      doc.text(column.value, column.x, y + 13);
+    });
+    doc.setTextColor(0, 0, 0);
+    y += 27;
 
     // ── FROM / BILL TO ──
     const MID = 110;
@@ -227,31 +382,45 @@ export default function InvoiceGenerator() {
     y += 5;
 
     // ── ITEMS TABLE HEADER ──
-    const COL = { desc: LEFT, qty: 100, rate: 130, amount: 165 };
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(10);
-    doc.rect(LEFT, y, CONTENT_WIDTH, 8);
-    doc.text("Description", COL.desc + 2, y + 5.5);
-    doc.text("Qty", COL.qty + 2, y + 5.5);
-    doc.text("Rate (INR)", COL.rate + 2, y + 5.5);
-    doc.text("Amount", COL.amount + 2, y + 5.5);
-    y += 8;
-
-    // ── ITEMS TABLE ROWS ──
-    doc.setFont("helvetica", "normal");
-    invoice.items.forEach((item) => {
-      checkPageBreak(10);
-      const amt =
-        (parseFloat(item.qty) || 0) * (parseFloat(item.rate) || 0);
-      doc.rect(LEFT, y, CONTENT_WIDTH, 8);
-      doc.text(cleanText(item.description), COL.desc + 2, y + 5.5);
-      doc.text(String(item.qty), COL.qty + 2, y + 5.5);
-      doc.text(cleanText(item.rate), COL.rate + 2, y + 5.5);
-      doc.text(amt.toFixed(2), COL.amount + 2, y + 5.5);
-      y += 8;
+    autoTable(doc, {
+      startY: y,
+      margin: { left: LEFT, right: 210 - RIGHT, top: HEADER_HEIGHT, bottom: 28 },
+      head: [["Description", "Qty", "Rate (INR)", "Amount (INR)"]],
+      body: invoice.items.map((item) => {
+        const quantity = parseFloat(item.qty) || 0;
+        const rate = parseFloat(item.rate) || 0;
+        return [
+          cleanText(item.description) || "Service / item",
+          quantity.toFixed(quantity % 1 ? 2 : 0),
+          rate.toFixed(2),
+          (quantity * rate).toFixed(2),
+        ];
+      }),
+      theme: "grid",
+      styles: {
+        font: "helvetica",
+        fontSize: 9,
+        cellPadding: { top: 3, right: 2.5, bottom: 3, left: 2.5 },
+        lineColor: [203, 213, 225],
+        lineWidth: 0.15,
+        textColor: [30, 41, 59],
+        valign: "middle",
+        overflow: "linebreak",
+      },
+      headStyles: { fillColor: [0, 112, 184], textColor: [255, 255, 255], fontStyle: "bold" },
+      alternateRowStyles: { fillColor: [248, 250, 252] },
+      columnStyles: {
+        0: { cellWidth: 88 },
+        1: { cellWidth: 18, halign: "center" },
+        2: { cellWidth: 32, halign: "right" },
+        3: { cellWidth: 32, halign: "right", fontStyle: "bold" },
+      },
+      rowPageBreak: "avoid",
+      willDrawPage: addBackgroundToAutoTablePage,
     });
 
-    y += 4;
+    // ── ITEMS TABLE ROWS ──
+    y = doc.lastAutoTable.finalY + 7;
 
     // ── TOTALS ──
     const TOTAL_LEFT = 120;
@@ -278,11 +447,15 @@ export default function InvoiceGenerator() {
     y += 5;
     doc.setFont("helvetica", "italic");
     doc.setFontSize(9);
-    doc.text(`Amount in Words: ${numberToWords(Math.round(total))}`, LEFT, y);
+    const amountInWords = doc.splitTextToSize(
+      `Amount in Words: ${numberToWords(Math.round(total))}`,
+      CONTENT_WIDTH,
+    );
+    doc.text(amountInWords, LEFT, y);
     doc.setFontSize(10);
     doc.setFont("helvetica", "normal");
 
-    y += 8;
+    y += Math.max(8, amountInWords.length * 4 + 4);
     line(LEFT, y, RIGHT, y);
     y += 8;
 
@@ -294,25 +467,39 @@ export default function InvoiceGenerator() {
       y += 5;
 
       // table header
-      doc.rect(LEFT, y, CONTENT_WIDTH, 7);
-      doc.text("Date",        LEFT + 2,  y + 5);
-      doc.text("Method",      LEFT + 40, y + 5);
-      doc.text("Note",        LEFT + 85, y + 5);
-      doc.text("Amount",      LEFT + 148, y + 5);
-      y += 7;
-
-      doc.setFont("helvetica", "normal");
-      invoice.payments.forEach((p) => {
-        checkPageBreak(8);
-        doc.rect(LEFT, y, CONTENT_WIDTH, 7);
-        doc.text(cleanText(formatDate(p.date)),  LEFT + 2,  y + 5);
-        doc.text(cleanText(p.method),            LEFT + 40, y + 5);
-        doc.text(cleanText(p.note),              LEFT + 85, y + 5);
-        doc.text(`INR ${parseFloat(p.amount || 0).toFixed(2)}`, LEFT + 148, y + 5);
-        y += 7;
+      autoTable(doc, {
+        startY: y,
+        margin: { left: LEFT, right: 210 - RIGHT, top: HEADER_HEIGHT, bottom: 28 },
+        head: [["Date", "Payment Method", "Reference / Note", "Amount (INR)"]],
+        body: invoice.payments.map((payment) => [
+          formatDate(payment.date),
+          cleanText(payment.method),
+          cleanText(payment.note) || "-",
+          (parseFloat(payment.amount) || 0).toFixed(2),
+        ]),
+        theme: "grid",
+        styles: {
+          font: "helvetica",
+          fontSize: 8.5,
+          cellPadding: 2.5,
+          lineColor: [203, 213, 225],
+          lineWidth: 0.15,
+          textColor: [30, 41, 59],
+          overflow: "linebreak",
+        },
+        headStyles: { fillColor: [15, 23, 42], textColor: [255, 255, 255], fontStyle: "bold" },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 32 },
+          1: { cellWidth: 38 },
+          2: { cellWidth: 65 },
+          3: { cellWidth: 35, halign: "right", fontStyle: "bold" },
+        },
+        rowPageBreak: "avoid",
+        willDrawPage: addBackgroundToAutoTablePage,
       });
 
-      y += 4;
+      y = doc.lastAutoTable.finalY + 7;
       doc.setFont("helvetica", "bold");
       addTotalRow("Total Paid:",    `INR ${totalPaid.toFixed(2)}`);
       addTotalRow("Balance Due:",   `INR ${balanceDue.toFixed(2)}`, true);
@@ -362,40 +549,66 @@ export default function InvoiceGenerator() {
     }
 
     // ── PAGE NUMBERS ──
+    const stampWidth = stamp.naturalWidth ? stamp.naturalWidth * 25.4 / 96 * 0.8 : 44;
+    const stampHeight = stamp.naturalHeight ? stamp.naturalHeight * 25.4 / 96 * 0.8 : 25;
+    checkPageBreak(stampHeight + 16);
+    const stampX = RIGHT - stampWidth;
+    const stampCenterX = RIGHT - stampWidth / 2;
+    if (stamp.naturalWidth) {
+      doc.addImage(stamp, "PNG", stampX, y, stampWidth, stampHeight, "invoice-stamp", "FAST");
+    }
+    doc.setDrawColor(148, 163, 184);
+    doc.line(stampX, y + stampHeight - 3, RIGHT, y + stampHeight - 3);
+    y += stampHeight + 3;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(71, 85, 105);
+    doc.text("Authorised Signatory", stampCenterX, y, { align: "center" });
+    y += 5;
+    doc.setFont("helvetica", "bold");
+    doc.text("Goanny Technologies Pvt. Ltd.", stampCenterX, y, { align: "center" });
+    doc.setTextColor(0, 0, 0);
+
     const pageCount = doc.getNumberOfPages();
     for (let i = 1; i <= pageCount; i++) {
       doc.setPage(i);
       doc.setFontSize(9);
-      doc.text(`Page ${i} of ${pageCount}`, 105, 290, { align: "center" });
+      doc.setTextColor(71, 85, 105);
+      doc.text(`Page ${i} of ${pageCount}`, RIGHT, 282, { align: "right" });
     }
 
-    doc.save(`Invoice-${generateInvoiceNumber(invoice.clientName, invoice.serial)}.pdf`);
+    doc.save(`${savedInvoice.invoiceNumber.replace(/\//g, "-")}.pdf`);
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-100 to-gray-200 py-6 px-4 sm:px-6">
-      <div className="max-w-4xl mx-auto bg-white p-6 sm:p-10 rounded-2xl shadow-2xl space-y-10">
+    <div className="min-h-screen bg-slate-50 p-3 sm:p-5">
+      <div className="mx-auto max-w-7xl space-y-4 [&_input]:outline-none [&_input]:transition [&_input]:focus:border-blue-400 [&_input]:focus:ring-2 [&_input]:focus:ring-blue-100 [&_label]:text-xs [&_label]:font-bold [&_label]:text-slate-600 [&_select]:outline-none [&_select]:transition [&_select]:focus:border-blue-400 [&_select]:focus:ring-2 [&_select]:focus:ring-blue-100 [&_textarea]:outline-none [&_textarea]:transition [&_textarea]:focus:border-blue-400 [&_textarea]:focus:ring-2 [&_textarea]:focus:ring-blue-100">
 
         {/* TITLE */}
-        <div className="text-center space-y-1">
-          <h2 className="text-2xl sm:text-3xl font-bold text-gray-800">Invoice Generator</h2>
-          <p className="text-gray-500 text-sm">Create professional invoices with company letterhead</p>
+        <div className="flex flex-col gap-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-4">
+            <Link href="/invoice" className="flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200 text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 hover:text-blue-700">
+              <ArrowLeft className="h-4 w-4" />
+            </Link>
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-blue-600">Finance / Invoices / New</p>
+              <h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">Create Invoice</h2>
+              <p className="mt-1 text-xs text-slate-500">Build, save, and download a professional client invoice.</p>
+            </div>
+          </div>
+          <div className="rounded-xl bg-blue-50 px-4 py-3 text-right">
+            <p className="text-[10px] font-bold uppercase tracking-wide text-blue-500">Invoice number</p>
+            <p className="mt-1 font-mono text-sm font-black text-blue-800">{savedInvoice?.invoiceNumber || "Assigned by backend after saving"}</p>
+          </div>
         </div>
 
         {/* INVOICE META */}
-        <div className="bg-gray-50 border rounded-xl p-6 space-y-4">
-          <h3 className="text-lg font-semibold border-b pb-2">Invoice Details</h3>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div>
-              <label className="text-sm font-medium">Serial No</label>
-              <input
-                type="number"
-                value={invoice.serial}
-                onChange={(e) => set("serial", e.target.value)}
-                className="border p-2 rounded-lg w-full mt-1"
-                placeholder="e.g. 1"
-              />
-            </div>
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 text-blue-700"><FileText className="h-4 w-4" /></span>
+            <div><h3 className="text-sm font-black text-slate-900">Invoice Details</h3><p className="text-[11px] text-slate-500">Set the invoice reference and payment timeline.</p></div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium">Invoice Date</label>
               <input
@@ -415,17 +628,16 @@ export default function InvoiceGenerator() {
               />
             </div>
           </div>
-          <div className="mt-2 text-sm text-gray-600">
-            Invoice No:{" "}
-            <span className="font-semibold">
-              {generateInvoiceNumber(invoice.clientName, invoice.serial)}
-            </span>
-          </div>
+          <p className="text-[11px] text-slate-500">The final daily sequence and invoice number are assigned automatically when you save.</p>
         </div>
 
+        <div className="grid gap-4 xl:grid-cols-2">
         {/* FROM */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold border-b pb-2">From</h3>
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-50 text-violet-700"><Building2 className="h-4 w-4" /></span>
+            <div><h3 className="text-sm font-black text-slate-900">From</h3><p className="text-[11px] text-slate-500">Your company and registered address.</p></div>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium">Company Name</label>
@@ -449,9 +661,28 @@ export default function InvoiceGenerator() {
         </div>
 
         {/* CLIENT DETAILS */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold border-b pb-2">Bill To</h3>
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-50 text-emerald-700"><ReceiptText className="h-4 w-4" /></span>
+            <div><h3 className="text-sm font-black text-slate-900">Bill To</h3><p className="text-[11px] text-slate-500">Select a client to fill their billing details.</p></div>
+          </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="sm:col-span-2">
+              <label className="text-sm font-medium">Select Client</label>
+              <select
+                value={selectedClientId}
+                onChange={(event) => void selectClient(clients.find((client) => client.id === event.target.value))}
+                disabled={clientLoading}
+                className="border p-2 rounded-lg w-full mt-1 bg-white"
+              >
+                <option value="">{clientLoading ? "Loading client details..." : "Choose a client"}</option>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.companyName}{client.clientCode ? ` (${client.clientCode})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
             <div>
               <label className="text-sm font-medium">Client / Company Name</label>
               <input
@@ -484,20 +715,28 @@ export default function InvoiceGenerator() {
             </div>
             <div>
               <label className="text-sm font-medium">Address</label>
-              <input
-                type="text"
+              <textarea
                 value={invoice.clientAddress}
                 onChange={(e) => set("clientAddress", e.target.value)}
-                className="border p-2 rounded-lg w-full mt-1"
-                placeholder="City, State"
+                className="mt-1 min-h-[74px] w-full rounded-lg border p-2"
+                placeholder="Billing address from client profile"
               />
             </div>
           </div>
         </div>
+        </div>
 
         {/* LINE ITEMS */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold border-b pb-2">Line Items</h3>
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-3">
+              <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 text-amber-700"><WalletCards className="h-4 w-4" /></span>
+              <div><h3 className="text-sm font-black text-slate-900">Line Items</h3><p className="text-[11px] text-slate-500">Add services, quantities, and rates.</p></div>
+            </div>
+            <button onClick={addItem} className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-2 text-xs font-bold text-white hover:bg-blue-700">
+              <Plus className="h-3.5 w-3.5" /> Add Item
+            </button>
+          </div>
 
           <div className="hidden sm:grid grid-cols-12 gap-2 text-sm font-semibold text-gray-600 px-1">
             <div className="col-span-6">Description</div>
@@ -544,17 +783,11 @@ export default function InvoiceGenerator() {
             );
           })}
 
-          <button
-            onClick={addItem}
-            className="bg-blue-600 text-white px-5 py-2 rounded-lg"
-          >
-            + Add Item
-          </button>
         </div>
 
         {/* TOTALS */}
-        <div className="flex justify-end">
-          <div className="space-y-2 w-full sm:w-72 text-sm">
+        <div className="flex justify-end rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="w-full space-y-3 rounded-2xl bg-slate-950 p-5 text-sm text-white sm:w-96">
             <div className="flex justify-between">
               <span>Subtotal</span>
               <span>INR {subtotal.toFixed(2)}</span>
@@ -568,23 +801,28 @@ export default function InvoiceGenerator() {
                 className="border p-1 rounded w-16 text-right"
               />
             </div>
-            <div className="flex justify-between text-gray-500">
+            <div className="flex justify-between text-slate-400">
               <span>Tax Amount</span>
               <span>INR {taxAmount.toFixed(2)}</span>
             </div>
-            <div className="flex justify-between font-bold text-base border-t pt-2">
+            <div className="flex justify-between border-t border-white/15 pt-3 text-lg font-black">
               <span>Total</span>
               <span>INR {total.toFixed(2)}</span>
             </div>
-            <div className="text-xs text-gray-500 italic pt-1">
+            <div className="pt-1 text-xs italic text-slate-400">
               {numberToWords(Math.round(total))}
             </div>
           </div>
         </div>
 
         {/* PAYMENTS RECEIVED */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold border-b pb-2">Payments Received</h3>
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div><h3 className="text-sm font-black text-slate-900">Payments Received</h3><p className="text-[11px] text-slate-500">Record any advance or partial payment.</p></div>
+            <button onClick={addPayment} className="inline-flex items-center gap-1.5 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 hover:bg-blue-100">
+              <Plus className="h-3.5 w-3.5" /> Add Payment
+            </button>
+          </div>
 
           {invoice.payments.length > 0 && (
             <div className="hidden sm:grid grid-cols-12 gap-2 text-sm font-semibold text-gray-600 px-1">
@@ -636,13 +874,6 @@ export default function InvoiceGenerator() {
             </div>
           ))}
 
-          <button
-            onClick={addPayment}
-            className="bg-blue-600 text-white px-5 py-2 rounded-lg"
-          >
-            + Add Payment
-          </button>
-
           {invoice.payments.length > 0 && (
             <div className="flex justify-end">
               <div className="space-y-2 w-full sm:w-72 text-sm border-t pt-3">
@@ -660,8 +891,8 @@ export default function InvoiceGenerator() {
         </div>
 
         {/* BANK DETAILS */}
-        <div className="space-y-4">
-          <h3 className="text-lg font-semibold border-b pb-2">Bank Details</h3>
+        <div className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="border-b border-slate-100 pb-3"><h3 className="text-sm font-black text-slate-900">Bank Details</h3><p className="text-[11px] text-slate-500">Payment account displayed on the PDF.</p></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="text-sm font-medium">Account Holder</label>
@@ -705,8 +936,8 @@ export default function InvoiceGenerator() {
         </div>
 
         {/* NOTES */}
-        <div className="space-y-2">
-          <h3 className="text-lg font-semibold border-b pb-2">Notes</h3>
+        <div className="space-y-3 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="border-b border-slate-100 pb-3"><h3 className="text-sm font-black text-slate-900">Terms & Notes</h3><p className="text-[11px] text-slate-500">Add payment terms or customer instructions.</p></div>
           <textarea
             value={invoice.notes}
             onChange={(e) => set("notes", e.target.value)}
@@ -714,13 +945,37 @@ export default function InvoiceGenerator() {
           />
         </div>
 
-        {/* GENERATE */}
-        <button
-          onClick={generatePDF}
-          className="w-full bg-black text-white py-4 rounded-xl text-lg shadow-lg hover:bg-gray-900"
-        >
-          Generate Invoice PDF
-        </button>
+        {/* SAVE / GENERATE */}
+        {saveError ? (
+          <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm font-medium text-red-700">
+            {saveError}
+          </div>
+        ) : null}
+        {savedInvoice?.invoiceNumber ? (
+          <div className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+            <span>Invoice {savedInvoice.invoiceNumber} created successfully.</span>
+            <Link href={`/invoice?invoiceId=${savedInvoice.id}`} className="font-black text-blue-700 hover:underline">View invoice</Link>
+          </div>
+        ) : null}
+        <div className="sticky bottom-3 z-20 grid gap-3 rounded-2xl border border-slate-200 bg-white/95 p-3 shadow-[0_16px_45px_rgba(15,23,42,0.16)] backdrop-blur sm:grid-cols-2">
+          <button
+            type="button"
+            onClick={saveInvoice}
+            disabled={saving}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 py-3 text-sm font-black text-white shadow-lg shadow-blue-200 hover:bg-blue-700 disabled:opacity-60"
+          >
+            <Save className="h-4 w-4" />
+            {saving ? "Saving Invoice..." : "Save Invoice"}
+          </button>
+          <button
+            type="button"
+            onClick={generatePDF}
+            disabled={!savedInvoice?.invoiceNumber}
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-slate-950 py-3 text-sm font-black text-white shadow-lg hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Download className="h-4 w-4" /> Generate Invoice PDF
+          </button>
+        </div>
 
       </div>
     </div>

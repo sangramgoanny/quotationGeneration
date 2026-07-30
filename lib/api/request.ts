@@ -1,6 +1,17 @@
 import { authHeader } from "@/utils/token";
 import { API_BASE_URL as BASE } from "@/lib/api/config";
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly fieldErrors: Record<string, string> = {},
+  ) {
+    super(message);
+    this.name = "ApiRequestError";
+  }
+}
+
 export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const url = `${BASE}${path}`;
   const method = options.method ?? "GET";
@@ -14,6 +25,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
 
   const res = await fetch(url, {
     ...options,
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
       ...authHeader(),
@@ -28,14 +40,20 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   if (!res.ok) {
     const b = body as Record<string, unknown>;
     const baseMessage = typeof b?.message === "string" ? b.message : `API error ${res.status}`;
-    const errorList = Array.isArray(b?.errors)
-      ? (b.errors as unknown[])
-          .map((er) => (typeof er === "string" ? er : (er as Record<string, unknown>)?.message))
-          .filter((m): m is string => typeof m === "string" && m.length > 0)
-      : [];
+    const fieldErrors = Array.isArray(b?.errors)
+      ? (b.errors as unknown[]).reduce<Record<string, string>>((result, error) => {
+          if (typeof error !== "object" || error === null) return result;
+          const item = error as Record<string, unknown>;
+          if (typeof item.path === "string" && typeof item.message === "string") {
+            result[item.path] = item.message;
+          }
+          return result;
+        }, {})
+      : {};
+    const errorList = Object.values(fieldErrors);
     const message = errorList.length ? `${baseMessage}: ${errorList.join("; ")}` : baseMessage;
     console.error(`[API] ${method} ${url} → ${res.status}:`, body);
-    throw new Error(message);
+    throw new ApiRequestError(message, res.status, fieldErrors);
   }
 
   console.log(`[API] ${method} ${url} → ${res.status}:`, body);

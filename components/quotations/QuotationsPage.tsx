@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Search, Filter, ChevronDown, Eye, FileText,
   RefreshCw, X, Calendar, IndianRupee, User, Hash, MapPin, Download, Pencil, ScrollText,
-  AlertCircle, Loader2,
+  AlertCircle, Loader2, ReceiptText,
 } from "lucide-react";
 import { type QuotationRecord, type TimelinePhase, type TimelineUnit } from "@/lib/quotationStore";
 import {
@@ -15,6 +15,7 @@ import {
   type QuotationListItem,
   type Quotation,
 } from "@/lib/api/quotations";
+import { clientsApi } from "@/lib/api/clients";
 
 const TIMELINE_UNIT_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
 const API_TO_UNIT: Record<string, TimelineUnit> = { DAYS: "Days", WEEKS: "Weeks", MONTHS: "Months" };
@@ -1115,6 +1116,10 @@ export default function QuotationsPage() {
     setUpdatingStatusId(id);
     try {
       await quotationsApi.updateStatus(id, status);
+      const quotation = quotations.find(q => q.id === id);
+      if (status === "ACCEPTED" && quotation?.clientId) {
+        await clientsApi.convertLeadToClient(quotation.clientId);
+      }
       setQuotations(prev => prev.map(q => (q.id === id ? { ...q, status } : q)));
       setSelected(prev => (prev && prev.id === id ? { ...prev, status } : prev));
     } catch (e) {
@@ -1248,6 +1253,15 @@ export default function QuotationsPage() {
                             className="p-1.5 rounded-lg text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40">
                             <ScrollText className="w-4 h-4" />
                           </button>
+                          {q.status === "ACCEPTED" && (
+                            <button
+                              title="Create Invoice"
+                              onClick={() => router.push(`/invoice/new?clientId=${encodeURIComponent(q.clientId)}&quotationId=${encodeURIComponent(q.id)}`)}
+                              className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
+                            >
+                              <ReceiptText className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

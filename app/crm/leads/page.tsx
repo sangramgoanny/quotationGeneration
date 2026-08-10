@@ -1479,6 +1479,10 @@ export default function LeadsPage() {
                   triggerCreate={triggerCreateQuotation}
                   onCreateHandled={() => setTriggerCreateQuotation(false)}
                   onActivity={(action, desc) => addActivity(selectedLead.id!, action, desc)}
+                  onLeadConverted={() => {
+                    setLeads((prev) => prev.filter((lead) => lead.id !== selectedLead.id));
+                    setSelectedLead(null);
+                  }}
                 />
               )}
 

@@ -8,6 +8,7 @@ import Link from "next/link";
 import { ArrowLeft, Building2, Download, FileText, Plus, ReceiptText, Save, WalletCards } from "lucide-react";
 import { clientsApi } from "@/lib/api/clients";
 import { invoicesApi } from "@/lib/api/invoices";
+import { quotationsApi } from "@/lib/api/quotations";
 
 const ones = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine",
   "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
@@ -114,7 +115,25 @@ export default function InvoiceGenerator() {
         const params = new URLSearchParams(window.location.search);
         const clientId = params.get("clientId");
         const quotationId = params.get("quotationId");
-        if (quotationId) setInvoice((previous) => ({ ...previous, quotationId }));
+        if (quotationId) {
+          setInvoice((previous) => ({ ...previous, quotationId }));
+          quotationsApi.get(quotationId)
+            .then((quotation) => {
+              if (!active) return;
+              const amount = Number(quotation.totalAmount) || 0;
+              setInvoice((previous) => ({
+                ...previous,
+                quotationId,
+                taxRate: "0",
+                items: amount > 0
+                  ? [{ description: quotation.subject || `Quotation ${quotation.quotationNumber}`, qty: 1, rate: String(amount) }]
+                  : previous.items,
+              }));
+            })
+            .catch((error) => {
+              if (active) setSaveError(error instanceof Error ? error.message : "Unable to load quotation details");
+            });
+        }
         const client = records.find((record) => record.id === clientId);
         if (client) {
           setSelectedClientId(client.id);

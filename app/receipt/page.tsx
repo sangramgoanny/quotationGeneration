@@ -422,6 +422,15 @@ export default function ReceiptPage() {
   }, [page]);
 
   useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    const receiptId = new URLSearchParams(window.location.search).get("receiptId");
+    if (!receiptId) return;
+    let active = true;
+    receiptsApi.get(receiptId)
+      .then((receipt) => { if (active) setSelected(receipt); })
+      .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Unable to open receipt"); });
+    return () => { active = false; };
+  }, []);
   const visible = useMemo(() => {
     const term = search.trim().toLowerCase();
     if (!term) return receipts;

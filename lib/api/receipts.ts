@@ -73,4 +73,13 @@ export const receiptsApi = {
       ? (response as ApiEnvelope<InvoiceReceipt>).data
       : response as InvoiceReceipt;
   },
+
+  async get(id: string): Promise<ReceiptListItem> {
+    const response = await request<ReceiptListItem | ApiEnvelope<ReceiptListItem>>(
+      `/api/receipts/${encodeURIComponent(id)}`,
+    );
+    return typeof response === "object" && response !== null && "data" in response
+      ? (response as ApiEnvelope<ReceiptListItem>).data
+      : response as ReceiptListItem;
+  },
 };

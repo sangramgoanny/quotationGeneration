@@ -170,7 +170,7 @@ export interface ClientListResponse {
 }
 
 interface RawClientListItem extends Omit<Partial<Client>, "accountManager" | "outstandingBalance" | "billingCity"> {
-  accountManager?: { id: string; name: string } | string | null;
+  accountManager?: { id: string; name?: string; email?: string } | string | null;
   billingCity?: string | null;
   outstandingBalance?: string | number;
   _count?: { quotations?: number; invoices?: number };
@@ -222,7 +222,7 @@ function listItemToClient(row: RawClientListItem): Client {
     clientType: CLIENT_TYPE_DISPLAY[String(row.clientType)] ?? row.clientType ?? "Company",
     industry: INDUSTRY_DISPLAY[String(row.industry)] ?? row.industry ?? "",
     accountManager: typeof manager === "object" && manager ? manager.id : String(manager ?? ""),
-    accountManagerName: typeof manager === "object" && manager ? manager.name : undefined,
+    accountManagerName: typeof manager === "object" && manager ? (manager.name || manager.email) : undefined,
     billingCity: row.billingCity ?? undefined,
     outstandingBalance: String(row.outstandingBalance ?? "0"),
     quotationCount: row._count?.quotations ?? 0,
@@ -267,8 +267,8 @@ export const clientsApi = {
   },
 
   async get(id: string): Promise<Client> {
-    const raw = await request<{ success: boolean; data: Client }>(`/api/clients/${id}`);
-    return raw.data;
+    const raw = await request<{ success: boolean; data: RawClientListItem }>(`/api/clients/${id}`);
+    return listItemToClient(raw.data);
   },
 
   async create(data: Omit<Client, "id" | "clientCode" | "createdAt" | "updatedAt"> & { leadStage?: string }): Promise<Client> {
@@ -286,6 +286,14 @@ export const clientsApi = {
     const raw = await request<{ success: boolean; data: Client }>(`/api/clients/${id}`, {
       method: "PATCH",
       body: JSON.stringify(clientToSpec(data)),
+    });
+    return raw.data;
+  },
+
+  async convertLeadToClient(id: string): Promise<Client> {
+    const raw = await request<{ success: boolean; data: Client }>(`/api/clients/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "ACTIVE", leadStage: "WON" }),
     });
     return raw.data;
   },
@@ -352,10 +360,27 @@ export const clientsApi = {
     const r = await request<{ success: boolean; data: QuotationRecord[] }>(`/api/clients/${id}/quotations`); return r.data;
   },
   async getInvoices(id: string):    Promise<InvoiceRecord[]>    {
-    const r = await request<{ success: boolean; data: InvoiceRecord[] }>(`/api/clients/${id}/invoices`); return r.data;
+    const r = await request<{
+      data?: { invoices?: Array<InvoiceRecord & { amount: string | number; paid: string | number; due: string | number }> };
+      invoices?: Array<InvoiceRecord & { amount: string | number; paid: string | number; due: string | number }>;
+    }>(`/api/invoices?clientId=${encodeURIComponent(id)}&limit=100`);
+    const rows = r.data?.invoices ?? r.invoices ?? [];
+    return rows.map((invoice) => ({
+      ...invoice,
+      amount: Number(invoice.amount) || 0,
+      paid: Number(invoice.paid) || 0,
+      due: Number(invoice.due) || 0,
+    }));
   },
   async getReceipts(id: string):    Promise<ReceiptRecord[]>    {
-    const r = await request<{ success: boolean; data: ReceiptRecord[] }>(`/api/clients/${id}/receipts`); return r.data;
+    const r = await request<{
+      data?: { receipts?: Array<ReceiptRecord & { clientId?: string; amount: string | number }> };
+      receipts?: Array<ReceiptRecord & { clientId?: string; amount: string | number }>;
+    }>("/api/receipts?limit=100");
+    const rows = r.data?.receipts ?? r.receipts ?? [];
+    return rows
+      .filter((receipt) => !receipt.clientId || receipt.clientId === id)
+      .map((receipt) => ({ ...receipt, amount: Number(receipt.amount) || 0 }));
   },
   async getProjects(id: string):    Promise<ProjectRecord[]>    {
     const r = await request<{ success: boolean; data: ProjectRecord[] }>(`/api/clients/${id}/projects`); return r.data;

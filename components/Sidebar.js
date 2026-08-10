@@ -49,11 +49,11 @@ const SECTIONS = [
           { label: "Pipeline", href: "/crm/pipeline", icon: Activity, tone: "cyan" },
           { label: "Leads", href: "/crm/leads", icon: Target, tone: "blue", badge: "12" },
           { label: "Leads 2", href: "/crm/leads-2", icon: Target, tone: "red", badge: "New" },
-          { label: "Clients", href: "/crm/clients", icon: UserCircle, tone: "cyan" },
           { label: "Activities", href: "/crm/activities", icon: Activity, tone: "violet" },
           { label: "Follow Ups", href: "/crm/follow-ups", icon: Clock3, tone: "amber", badge: "5" },
         ],
       },
+      { label: "Clients", href: "/crm/clients", icon: UserCircle, tone: "cyan" },
       {
         label: "Sales",
         icon: FileText,

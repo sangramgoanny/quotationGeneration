@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { jsPDF } from "jspdf";
 import {
   Download, Eye, FileText, Plus, X, Trash2, ChevronDown, ChevronUp,
-  User, MapPin, Hash, Calendar, IndianRupee, Loader2, Pencil,
+  User, MapPin, Hash, Calendar, IndianRupee, Loader2, Pencil, ReceiptText,
 } from "lucide-react";
 import {
   quotationsApi,
@@ -14,6 +15,7 @@ import {
   type QuotationStatus,
 } from "@/lib/api/quotations";
 import { type TimelinePhase, type TimelineUnit } from "@/lib/quotationStore";
+import { clientsApi } from "@/lib/api/clients";
 
 const UNIT_TO_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
 const UNIT_TO_API: Record<TimelineUnit, "DAYS" | "WEEKS" | "MONTHS"> = { Days: "DAYS", Weeks: "WEEKS", Months: "MONTHS" };
@@ -1211,6 +1213,7 @@ interface LeadQuotationSectionProps {
   triggerCreate?: boolean;
   onCreateHandled?: () => void;
   onActivity?: (action: string, description: string) => void;
+  onLeadConverted?: () => void;
 }
 
 export default function LeadQuotationSection({
@@ -1219,7 +1222,9 @@ export default function LeadQuotationSection({
   triggerCreate,
   onCreateHandled,
   onActivity,
+  onLeadConverted,
 }: LeadQuotationSectionProps) {
+  const router = useRouter();
   const [quotations, setQuotations] = useState<SavedQuotation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1303,9 +1308,13 @@ export default function LeadQuotationSection({
     setUpdatingStatusId(id);
     try {
       await quotationsApi.updateStatus(id, status);
+      if (status === "ACCEPTED") {
+        await clientsApi.convertLeadToClient(leadId);
+      }
       setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status } : q)));
       setViewTarget((prev) => (prev && prev.id === id ? { ...prev, status } : prev));
       onActivity?.("Quotation Status Updated", `Quotation status changed to ${status}`);
+      if (status === "ACCEPTED") onLeadConverted?.();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to update status");
     } finally {
@@ -1427,6 +1436,15 @@ export default function LeadQuotationSection({
                           >
                             <Download className="w-4 h-4" />
                           </button>
+                          {q.status === "ACCEPTED" && (
+                            <button
+                              title="Create Invoice"
+                              onClick={() => router.push(`/invoice/new?clientId=${encodeURIComponent(leadId)}&quotationId=${encodeURIComponent(q.id)}`)}
+                              className="p-1.5 rounded-lg text-amber-600 hover:bg-amber-50 transition-colors"
+                            >
+                              <ReceiptText className="w-4 h-4" />
+                            </button>
+                          )}
                           {q.status === "DRAFT" && (
                             <button
                               title="Delete"

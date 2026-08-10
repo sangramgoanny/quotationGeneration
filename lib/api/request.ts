@@ -52,7 +52,9 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
       : {};
     const errorList = Object.values(fieldErrors);
     const message = errorList.length ? `${baseMessage}: ${errorList.join("; ")}` : baseMessage;
-    console.error(`[API] ${method} ${url} → ${res.status}:`, body);
+    // The calling UI handles HTTP failures. Avoid triggering Next.js's dev
+    // error overlay for a response that is already caught by the caller.
+    console.warn(`[API] ${method} ${url} → ${res.status}:`, body);
     throw new ApiRequestError(message, res.status, fieldErrors);
   }
 

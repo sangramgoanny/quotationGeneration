@@ -9,14 +9,15 @@ import {
   Trash2, Plus, Clock, AlertCircle, CheckCircle,
   XCircle, MinusCircle, Ban,
   Copy, IndianRupee, Layers3,
+  ChevronDown, MessageCircle,
 } from "lucide-react";
 import {
   clientsApi,
   type InvoiceRecord,
   type ReceiptRecord,
   type ProjectRecord,
-  type ActivityItem,
 } from "@/lib/api/clients";
+import { activityApi, type ActivityLog } from "@/lib/api/activity";
 import { quotationsApi, type Quotation, type QuotationListItem, type QuotationStatus } from "@/lib/api/quotations";
 import { agreementsApi, type AgreementListItem, type AgreementStatus } from "@/lib/api/agreements";
 import type { Client, ClientDocument, ContactPerson } from "@/types/client";
@@ -122,12 +123,14 @@ function SummaryTile({
   value,
   tone = "slate",
   hint,
+  onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: string;
   tone?: "slate" | "blue" | "green" | "red";
   hint?: string;
+  onClick?: () => void;
 }) {
   const toneCls = {
     slate: "bg-slate-50 text-slate-700 ring-slate-100",
@@ -136,15 +139,27 @@ function SummaryTile({
     red: "bg-red-50 text-red-700 ring-red-100",
   }[tone];
 
-  return (
-    <div className={`rounded-lg p-3 ring-1 ${toneCls}`}>
+  const content = (
+    <>
       <div className="flex items-center gap-2">
         <Icon className="w-4 h-4 shrink-0" />
         <span className="text-[11px] font-semibold uppercase tracking-wide opacity-75">{label}</span>
       </div>
       <p className="mt-2 text-lg font-bold leading-tight">{value}</p>
       {hint && <p className="mt-1 text-[11px] opacity-70 truncate">{hint}</p>}
-    </div>
+    </>
+  );
+
+  return onClick ? (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-lg p-3 text-left ring-1 transition hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-indigo-500 ${toneCls}`}
+    >
+      {content}
+    </button>
+  ) : (
+    <div className={`rounded-lg p-3 ring-1 ${toneCls}`}>{content}</div>
   );
 }
 
@@ -492,8 +507,13 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
   const [invoices,   setInvoices]   = useState<InvoiceRecord[] | null>(null);
   const [receipts,   setReceipts]   = useState<ReceiptRecord[] | null>(null);
   const [projects,   setProjects]   = useState<ProjectRecord[] | null>(null);
-  const [activity,   setActivity]   = useState<ActivityItem[] | null>(null);
+  const [activity,   setActivity]   = useState<ActivityLog[] | null>(null);
+  const [activityAction, setActivityAction] = useState("");
+  const [activityDescription, setActivityDescription] = useState("");
+  const [activitySaving, setActivitySaving] = useState(false);
+  const [activityError, setActivityError] = useState<string | null>(null);
   const [tabLoading, setTabLoading] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
 
   // Load client
   useEffect(() => {
@@ -546,17 +566,54 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
             setProjects(await clientsApi.getProjects(clientId));
             break;
           case "activity":
-            setActivity(await clientsApi.getActivity(clientId));
+            setActivity(await activityApi.list(clientId));
             break;
         }
-      } catch {
-        // silently ignore; show empty state in tab
+      } catch (e) {
+        if (tab === "activity") {
+          setActivityError(e instanceof Error ? e.message : "Unable to load client activity");
+        }
       } finally {
         setTabLoading(false);
       }
     },
     [clientId, client, contacts, documents, invoices, receipts, projects, activity]
   );
+
+  useEffect(() => {
+    if (initialTab && initialTab !== "overview" && TABS.some((tab) => tab.id === initialTab)) {
+      void loadTab(initialTab as TabId);
+    }
+  }, [initialTab, loadTab]);
+
+  const refreshActivity = useCallback(async () => {
+    setTabLoading(true);
+    setActivityError(null);
+    try {
+      setActivity(await activityApi.list(clientId));
+    } catch (e) {
+      setActivityError(e instanceof Error ? e.message : "Unable to load client activity");
+    } finally {
+      setTabLoading(false);
+    }
+  }, [clientId]);
+
+  const createActivity = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!activityAction.trim() || !activityDescription.trim()) return;
+    setActivitySaving(true);
+    setActivityError(null);
+    try {
+      const created = await activityApi.create(clientId, activityAction.trim(), activityDescription.trim());
+      setActivity((current) => [created, ...(current ?? [])]);
+      setActivityAction("");
+      setActivityDescription("");
+    } catch (e) {
+      setActivityError(e instanceof Error ? e.message : "Unable to add client activity");
+    } finally {
+      setActivitySaving(false);
+    }
+  };
 
   // Document upload handler
   const handleDocUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -627,7 +684,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
   return (
     <div className="space-y-4">
       {/* ── Header ── */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 sm:p-6">
+      <div className="lg:sticky lg:top-0 z-20 bg-white/95 backdrop-blur border border-slate-200 rounded-xl p-4 sm:p-5 shadow-sm">
         <div className="flex flex-col sm:flex-row sm:items-center gap-4">
           <div className="w-14 h-14 rounded-xl bg-indigo-600 flex items-center justify-center text-white font-bold text-lg shrink-0">
             {initials}
@@ -667,9 +724,24 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
             </div>
           </div>
           <div className="flex items-center gap-2 shrink-0 flex-wrap sm:justify-end">
+            {client.mobile && (
+              <a href={`tel:${client.mobile}`} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200" title="Call client">
+                <Phone className="w-4 h-4" /><span className="hidden lg:inline">Call</span>
+              </a>
+            )}
+            {client.primaryEmail && (
+              <a href={`mailto:${client.primaryEmail}`} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200" title="Email client">
+                <Mail className="w-4 h-4" /><span className="hidden lg:inline">Email</span>
+              </a>
+            )}
+            {(client.whatsapp || client.mobile) && (
+              <a href={`https://wa.me/${(client.whatsapp || client.mobile || "").replace(/\D/g, "")}`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100" title="Open WhatsApp">
+                <MessageCircle className="w-4 h-4" /><span className="hidden lg:inline">WhatsApp</span>
+              </a>
+            )}
             <Link
               href={`/crm/clients/${clientId}/edit`}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
             >
               <Edit className="w-3.5 h-3.5" /> Edit
             </Link>
@@ -688,6 +760,19 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
               <Receipt className="w-3.5 h-3.5" /> Invoice
             </Link>
             */}
+            <div className="relative">
+              <button type="button" onClick={() => setShowCreateMenu((open) => !open)} aria-expanded={showCreateMenu} className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">
+                <Plus className="w-4 h-4" /> New <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+              {showCreateMenu && (
+                <div className="absolute right-0 top-full mt-2 w-48 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-xl z-30">
+                  <Link onClick={() => setShowCreateMenu(false)} href={`/quotation/new?clientId=${clientId}&clientName=${encodeURIComponent(client.companyName || "")}`} className="flex items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50"><FileText className="w-4 h-4 text-indigo-500" /> Quotation</Link>
+                  <Link onClick={() => setShowCreateMenu(false)} href={`/contract/new?clientId=${clientId}&clientName=${encodeURIComponent(client.companyName || "")}`} className="flex items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50"><Briefcase className="w-4 h-4 text-violet-500" /> Agreement</Link>
+                  <Link onClick={() => setShowCreateMenu(false)} href={`/invoice/new?clientId=${clientId}`} className="flex items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50"><Receipt className="w-4 h-4 text-emerald-500" /> Invoice</Link>
+                  <button type="button" onClick={() => { setShowCreateMenu(false); loadTab("documents"); }} className="flex w-full items-center gap-2 px-3 py-2.5 text-sm text-slate-700 hover:bg-slate-50"><Upload className="w-4 h-4 text-amber-500" /> Upload document</button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -697,6 +782,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
             value={formatCurrency(outstanding)}
             tone={outstanding > 0 ? "red" : "green"}
             hint={client.paymentTerms || "Payment terms pending"}
+            onClick={() => loadTab("invoices")}
           />
           <SummaryTile
             icon={Users}
@@ -704,12 +790,14 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
             value={String((contacts ?? client.contacts ?? []).length)}
             tone="blue"
             hint={client.contactPersonName || "Primary contact pending"}
+            onClick={() => loadTab("contacts")}
           />
           <SummaryTile
             icon={Upload}
             label="Documents"
             value={String(profileDocs.length)}
             hint={profileDocs.length ? "Uploaded files" : "No files yet"}
+            onClick={() => loadTab("documents")}
           />
           <SummaryTile
             icon={Layers3}
@@ -724,14 +812,14 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
       {/* ── Tabs ── */}
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         {/* Tab bar */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-9 border-b border-slate-200 bg-slate-50">
+        <div className="flex overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 scrollbar-thin">
           {TABS.map((t) => {
             const Icon = t.icon;
             return (
               <button
                 key={t.id}
                 onClick={() => loadTab(t.id)}
-                className={`flex items-center justify-center gap-1.5 px-3 py-3 text-xs font-medium transition-colors border-b-2 ${
+                className={`flex shrink-0 items-center justify-center gap-1.5 px-4 py-3 text-xs font-medium transition-colors border-b-2 ${
                   activeTab === t.id
                     ? "border-indigo-600 text-indigo-700 bg-white"
                     : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-white"
@@ -810,7 +898,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                   </InfoCard>
 
                   <InfoCard title="Account & Financials">
-                    <InfoRow label="Account Manager" value={client.accountManager} />
+                    <InfoRow label="Account Manager" value={client.accountManagerName || client.accountManager || "-"} />
                     <InfoRow label="Lead Source" value={client.leadSource} />
                     <InfoRow label="Payment Terms" value={client.paymentTerms} />
                     <InfoRow label="Credit Limit" value={client.creditLimit ? `₹ ${client.creditLimit}` : undefined} />
@@ -1093,7 +1181,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                               <td className="px-4 py-3 text-center"><StatusBadge status={inv.status} /></td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-center gap-2">
-                                  <Link href={`/invoice/${inv.id}`} className="p-1 text-slate-500 hover:text-indigo-600"><Eye className="w-4 h-4" /></Link>
+                                  <Link href={`/invoice?invoiceId=${encodeURIComponent(inv.id)}`} title="View invoice" className="p-1 text-slate-500 hover:text-indigo-600"><Eye className="w-4 h-4" /></Link>
                                   <button className="p-1 text-slate-500 hover:text-indigo-600"><Download className="w-4 h-4" /></button>
                                 </div>
                               </td>
@@ -1132,7 +1220,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                               <td className="px-4 py-3 text-slate-600">{r.paymentMode}</td>
                               <td className="px-4 py-3">
                                 <div className="flex items-center justify-center gap-2">
-                                  <Link href={`/receipt/${r.id}`} className="p-1 text-slate-500 hover:text-indigo-600"><Eye className="w-4 h-4" /></Link>
+                                  <Link href={`/receipt?receiptId=${encodeURIComponent(r.id)}`} title="View receipt" className="p-1 text-slate-500 hover:text-indigo-600"><Eye className="w-4 h-4" /></Link>
                                   <button className="p-1 text-slate-500 hover:text-indigo-600"><Download className="w-4 h-4" /></button>
                                 </div>
                               </td>
@@ -1191,16 +1279,31 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
 
               {/* Tab 9 - Activity */}
               {activeTab === "activity" && (
-                <div>
+                <div className="space-y-5">
+                  <form onSubmit={createActivity} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                      <div><h3 className="text-sm font-bold text-slate-900">Add Client Activity</h3><p className="text-xs text-slate-500">Record a call, meeting, email, note, or follow-up.</p></div>
+                      <button type="button" onClick={() => void refreshActivity()} disabled={tabLoading} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 disabled:opacity-50">{tabLoading ? "Refreshing..." : "Refresh"}</button>
+                    </div>
+                    <div className="grid gap-3 md:grid-cols-[220px_1fr_auto]">
+                      <input value={activityAction} onChange={(event) => setActivityAction(event.target.value)} placeholder="Activity type (e.g. Call)" className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                      <input value={activityDescription} onChange={(event) => setActivityDescription(event.target.value)} placeholder="What happened?" className="h-10 rounded-lg border border-slate-200 bg-white px-3 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100" />
+                      <button type="submit" disabled={activitySaving || !activityAction.trim() || !activityDescription.trim()} className="inline-flex h-10 items-center justify-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-50"><Plus className="h-4 w-4" />{activitySaving ? "Saving..." : "Add"}</button>
+                    </div>
+                    {activityError && <p className="mt-3 text-xs font-medium text-red-600">{activityError}</p>}
+                  </form>
+
                   {!activity || activity.length === 0 ? (
                     <EmptyState message="No activity found" />
                   ) : (
                     <div className="space-y-0">
-                      {activity.map((item, i) => (
+                      {activity.map((item, i) => {
+                        const activityUser = item.user?.name || item.userName || "System";
+                        return (
                         <div key={item.id} className="flex gap-3">
                           <div className="flex flex-col items-center">
                             <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-semibold shrink-0 mt-1">
-                              {item.user.charAt(0).toUpperCase()}
+                              {activityUser.charAt(0).toUpperCase()}
                             </div>
                             {i < activity.length - 1 && (
                               <div className="w-px bg-slate-200 flex-1 my-1" />
@@ -1208,7 +1311,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                           </div>
                           <div className="pb-5 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <span className="text-sm font-medium text-slate-800">{item.user}</span>
+                              <span className="text-sm font-medium text-slate-800">{activityUser}</span>
                               <span className="text-xs text-slate-500">{item.action}</span>
                               <span className="ml-auto text-xs text-slate-400 flex items-center gap-1">
                                 <Clock className="w-3 h-3" />
@@ -1220,7 +1323,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                             )}
                           </div>
                         </div>
-                      ))}
+                      );})}
                     </div>
                   )}
                 </div>

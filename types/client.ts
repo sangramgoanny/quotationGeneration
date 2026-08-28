@@ -166,6 +166,7 @@ export interface Client {
   accountManager: string;
   accountManagerName?: string;
   leadSource: LeadSource | "";
+  nextFollowUpDate?: string | null;
   paymentTerms: PaymentTerms | "";
   creditLimit: string;
   openingBalance: string;

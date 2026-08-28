@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import ConditionalLayout from "../components/ConditionalLayout";
 import { ReactNode } from "react";
 import "./globals.css";
+import { AuthRbacProvider } from "@/lib/rbac/AuthRbacProvider";
 
 export const metadata: Metadata = {
   title: {
@@ -17,7 +18,7 @@ export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
-        <ConditionalLayout>{children}</ConditionalLayout>
+        <AuthRbacProvider><ConditionalLayout>{children}</ConditionalLayout></AuthRbacProvider>
       </body>
     </html>
   );

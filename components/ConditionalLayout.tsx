@@ -5,6 +5,10 @@ import Sidebar from "./Sidebar";
 import { ReactNode, useSyncExternalStore } from "react";
 import { getToken, getUser } from "@/utils/token";
 import { Bell } from "lucide-react";
+import { useAuthRbac } from "@/lib/rbac/AuthRbacProvider";
+import { permissionForPath } from "@/lib/rbac/routes";
+import ProtectedRoute from "@/components/rbac/ProtectedRoute";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":        "Dashboard",
@@ -18,9 +22,12 @@ const PAGE_TITLES: Record<string, string> = {
   "/finance/expenses": "Expenses",
   "/projects":         "Projects",
   "/projects/tasks":   "Tasks",
-  "/users":            "Users",
-  "/users/roles":      "Roles",
-  "/settings":         "Settings",
+  "/settings":                             "Settings",
+  "/settings/users-access/users":          "Users & Access",
+  "/settings/users-access/roles":          "Roles & Permissions",
+  "/settings/users-access/teams":          "Teams",
+  "/settings/users-access/departments":    "Departments",
+  "/settings/users-access/activity-logs":  "Activity Logs",
 };
 
 const NO_SIDEBAR_PREFIXES = ["/login", "/admin", "/crm/leads-2"];
@@ -34,8 +41,11 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
   const pathname = usePathname();
   const showSidebar = !NO_SIDEBAR_PREFIXES.some((p) => pathname.startsWith(p));
   const token = useSyncExternalStore(subscribeToTokenChanges, getToken, () => null);
+  const { loading: permissionsLoading } = useAuthRbac();
+  const routePermission = permissionForPath(pathname);
 
   if (!showSidebar) return <>{children}</>;
+  if (permissionsLoading) return <div className="flex min-h-screen items-center justify-center bg-slate-100"><LoadingSpinner /></div>;
 
   const user     = token ? getUser() : null;
   const title    = PAGE_TITLES[pathname] ?? "Goanny ERP";
@@ -77,7 +87,9 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-6">
-          {children}
+          {routePermission ? (
+            <ProtectedRoute module={routePermission.module} action={routePermission.action}>{children}</ProtectedRoute>
+          ) : children}
         </main>
       </div>
     </div>

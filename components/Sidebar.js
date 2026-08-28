@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { clearToken } from "@/utils/token";
+import { usePermissions } from "@/lib/rbac/usePermissions";
+import { clientsApi } from "@/lib/api/clients";
+import { leadsApi } from "@/lib/api/leads";
+import { quotationsApi } from "@/lib/api/quotations";
 import {
   LayoutDashboard,
   Users,
@@ -19,7 +23,6 @@ import {
   Receipt,
   CreditCard,
   CheckSquare,
-  Shield,
   LogOut,
   Sparkles,
   PanelLeftClose,
@@ -33,9 +36,9 @@ const SECTIONS = [
   {
     label: "Workspace",
     items: [
-      { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tone: "blue" },
+      { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tone: "blue", moduleId: "dashboard" },
       { label: "AI Center", href: "/ai-center", icon: Sparkles, tone: "violet", badge: "AI" },
-      { label: "Reports", href: "/reports", icon: BarChart3, tone: "cyan" },
+      { label: "Reports", href: "/reports", icon: BarChart3, tone: "cyan", moduleId: "reports" },
     ],
   },
   {
@@ -46,23 +49,23 @@ const SECTIONS = [
         icon: Users,
         tone: "cyan",
         children: [
-          { label: "Pipeline", href: "/crm/pipeline", icon: Activity, tone: "cyan" },
-          { label: "Leads", href: "/crm/leads", icon: Target, tone: "blue", badge: "12" },
-          { label: "Leads 2", href: "/crm/leads-2", icon: Target, tone: "red", badge: "New" },
-          { label: "Activities", href: "/crm/activities", icon: Activity, tone: "violet" },
-          { label: "Follow Ups", href: "/crm/follow-ups", icon: Clock3, tone: "amber", badge: "5" },
+          { label: "Pipeline", href: "/crm/pipeline", icon: Activity, tone: "cyan", moduleId: "leads" },
+          { label: "Leads", href: "/crm/leads", icon: Target, tone: "blue", moduleId: "leads", countKey: "leads" },
+          // { label: "Leads 2", href: "/crm/leads-2", icon: Target, tone: "red", badge: "New" },
+          { label: "Activities", href: "/crm/activities", icon: Activity, tone: "violet", moduleId: "activities" },
+          { label: "Follow Ups", href: "/crm/follow-ups", icon: Clock3, tone: "amber", moduleId: "followups" },
         ],
       },
-      { label: "Clients", href: "/crm/clients", icon: UserCircle, tone: "cyan" },
+      { label: "Clients", href: "/crm/clients", icon: UserCircle, tone: "cyan", moduleId: "clients", countKey: "clients" },
       {
         label: "Sales",
         icon: FileText,
         tone: "violet",
         children: [
-          { label: "Quotations", href: "/quotation", icon: FileText, tone: "blue", badge: "3" },
+          { label: "Quotations", href: "/quotation", icon: FileText, tone: "blue", moduleId: "quotations", countKey: "quotations" },
           { label: "Proposals", href: "/sales/proposals", icon: Briefcase, tone: "violet" },
           { label: "Deals", href: "/sales/deals", icon: Target, tone: "emerald" },
-          { label: "Agreements", href: "/contract", icon: Briefcase, tone: "violet" },
+          { label: "Agreements", href: "/contract", icon: Briefcase, tone: "violet", moduleId: "agreements" },
         ],
       },
       {
@@ -70,8 +73,8 @@ const SECTIONS = [
         icon: FolderOpen,
         tone: "amber",
         children: [
-          { label: "Projects", href: "/projects", icon: FolderOpen, tone: "amber" },
-          { label: "Tasks", href: "/projects/tasks", icon: CheckSquare, tone: "blue", badge: "8" },
+          { label: "Projects", href: "/projects", icon: FolderOpen, tone: "amber", moduleId: "projects" },
+          { label: "Tasks", href: "/projects/tasks", icon: CheckSquare, tone: "blue", moduleId: "project_tasks" },
         ],
       },
       {
@@ -79,8 +82,8 @@ const SECTIONS = [
         icon: DollarSign,
         tone: "emerald",
         children: [
-          { label: "Invoices", href: "/invoice", icon: Receipt, tone: "blue" },
-          { label: "Receipts", href: "/receipt", icon: CreditCard, tone: "cyan" },
+          { label: "Invoices", href: "/invoice", icon: Receipt, tone: "blue", moduleId: "invoices" },
+          { label: "Receipts", href: "/receipt", icon: CreditCard, tone: "cyan", moduleId: "receipts" },
           { label: "Expenses", href: "/finance/expenses", icon: DollarSign, tone: "emerald" },
         ],
       },
@@ -89,19 +92,33 @@ const SECTIONS = [
   {
     label: "Admin",
     items: [
-      {
-        label: "Users",
-        icon: UserCircle,
-        tone: "red",
-        children: [
-          { label: "Users", href: "/users", icon: Users, tone: "blue" },
-          { label: "Roles", href: "/users/roles", icon: Shield, tone: "red" },
-        ],
-      },
-      { label: "Settings", href: "/settings", icon: Settings, tone: "slate" },
+      { label: "Settings", href: "/settings", icon: Settings, tone: "slate", moduleId: "settings" },
     ],
   },
 ];
+
+// Only show RBAC-backed items when the user has VIEW access. Items without a
+// moduleId are not in the permission catalog yet and remain visible.
+function filterSections(sections, canView, loading, counts) {
+  const itemVisible = (item) => !loading && (!item.moduleId || canView(item.moduleId));
+  const withCount = (item) => item.countKey && counts[item.countKey] !== undefined
+    ? { ...item, badge: counts[item.countKey] }
+    : item;
+
+  return sections
+    .map((section) => {
+      const items = section.items
+        .map((item) => {
+          if (!item.children) return itemVisible(item) ? withCount(item) : null;
+          const children = item.children.filter(itemVisible).map(withCount);
+          if (children.length === 0) return null;
+          return { ...item, children };
+        })
+        .filter(Boolean);
+      return { ...section, items };
+    })
+    .filter((section) => section.items.length > 0);
+}
 
 const TONES = {
   blue: "from-[#0070B8] to-[#0EA5E9]",
@@ -128,9 +145,35 @@ export default function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState([]);
   const [collapsed, setCollapsed] = useState(false);
+  const { canView, currentUser, loading: permissionsLoading } = usePermissions();
+  const [counts, setCounts] = useState({});
+
+  useEffect(() => {
+    if (permissionsLoading || !currentUser) return;
+    let active = true;
+    const loadCounts = async () => {
+      const next = {};
+      const requests = [];
+      if (canView("leads")) requests.push(["leads", leadsApi.list({ limit: 1 })]);
+      if (canView("clients")) requests.push(["clients", clientsApi.list({ limit: 1 })]);
+      if (canView("quotations")) requests.push(["quotations", quotationsApi.list({ limit: 1 })]);
+      const results = await Promise.allSettled(requests.map(([, request]) => request));
+      results.forEach((result, index) => {
+        if (result.status !== "fulfilled") return;
+        const key = requests[index][0];
+        const value = result.value;
+        next[key] = typeof value.total === "number" ? value.total : undefined;
+      });
+      if (active) setCounts(next);
+    };
+    void loadCounts();
+    return () => { active = false; };
+  }, [canView, currentUser, permissionsLoading]);
+
+  const sections = filterSections(SECTIONS, canView, permissionsLoading, counts);
 
   const getAutoOpen = (path) =>
-    SECTIONS.flatMap((section) => section.items)
+    sections.flatMap((section) => section.items)
       .filter((m) => m.children?.some((c) => path.startsWith(c.href)))
       .map((m) => m.label);
 
@@ -222,7 +265,7 @@ export default function Sidebar() {
       </div>
 
       <nav className={`relative flex-1 overflow-y-auto pb-3 scrollbar-thin ${collapsed ? "px-2 space-y-2" : "px-3 space-y-5"}`}>
-        {SECTIONS.map((section) => (
+        {sections.map((section) => (
           <div key={section.label}>
             {!collapsed ? (
               <p className="mb-2 px-3 text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">{section.label}</p>

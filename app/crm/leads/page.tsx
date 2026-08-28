@@ -2,19 +2,20 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  AlertCircle, ArrowUpRight, Bell, Calendar, CheckCircle2, ChevronDown, Clock, Eye, FileText, Globe, Mail,
-  MapPin, MessageCircle, Phone, Plus, RefreshCw, Search, Snowflake, Target, Trash2, TrendingUp, UserCheck, UserPlus, X,
-  Sparkles,
+  AlertCircle, ArrowUpRight, Bell, Briefcase, Calendar, CheckCircle2, ChevronDown, Clock, Eye, FileText, Globe, Mail,
+  MapPin, MessageCircle, Phone, Plus, RefreshCw, Search, Target, Trash2, TrendingUp, UserCheck, UserPlus, X,
 } from "lucide-react";
 import type { Client, Industry, LeadSource } from "@/types/client";
 import LeadQuotationSection from "@/components/leads/LeadQuotationSection";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import { clientsApi } from "@/lib/api/clients";
+import { leadsApi } from "@/lib/api/leads";
 import { notesApi } from "@/lib/api/notes";
 import { remindersApi, REMINDER_TYPE_FROM_API, REMINDER_TYPE_TO_API } from "@/lib/api/reminders";
 import { activityApi } from "@/lib/api/activity";
+import { usersApi, type User } from "@/lib/api/users";
+import { useAuthRbac } from "@/lib/rbac/AuthRbacProvider";
 
 const INDUSTRIES: Industry[] = [
   "IT Services", "Digital Marketing", "Manufacturing", "Healthcare",
@@ -29,15 +30,8 @@ const LEAD_SOURCES: LeadSource[] = [
 
 const CURRENT_USER = "Sangram";
 
-const USER_LIST = [
-  "Sangram",
-  "Aarohi Patel",
-  "Rahul Sharma",
-  "Meera Joshi",
-  "Vikram Singh",
-];
-
-type LeadStage = "New" | "Hot" | "Cold" | "Lost" | "Won" | "Quotation Sent";
+type LeadStage = "New" | "Hot" | "Warm" | "Cold" | "Lost" | "Won" | "Quotation Sent";
+type LeadSort = "newest" | "oldest" | "company";
 
 const PRESET_TAGS = [
   "Hot Lead", "Warm Lead", "Cold Lead", "High Priority",
@@ -50,11 +44,12 @@ type LeadRecord = Client & {
   leadStage: LeadStage;
 };
 
-const LEAD_STAGES: LeadStage[] = ["New", "Hot", "Cold", "Lost", "Won", "Quotation Sent"];
+const LEAD_STAGES: LeadStage[] = ["New", "Hot", "Warm", "Cold", "Lost", "Won", "Quotation Sent"];
 
 const LEAD_STAGE_COLORS: Record<LeadStage, string> = {
   New: "bg-slate-100 text-slate-700",
   Hot: "bg-red-100 text-red-700",
+  Warm: "bg-amber-100 text-amber-700",
   Cold: "bg-cyan-100 text-cyan-700",
   Lost: "bg-zinc-100 text-zinc-600",
   Won: "bg-emerald-100 text-emerald-700",
@@ -211,7 +206,7 @@ function phoneForUrl(phone?: string) {
 }
 
 const LEAD_STAGE_FROM_API: Record<string, LeadStage> = {
-  NEW: "New", HOT: "Hot", WARM: "Cold", COLD: "Cold",
+  NEW: "New", HOT: "Hot",   WARM: "Warm", COLD: "Cold",
   QUOTATION_SENT: "Quotation Sent", WON: "Won", LOST: "Lost",
 };
 
@@ -252,6 +247,9 @@ function mapApiLead(raw: Record<string, unknown>): LeadRecord {
     ADVANCE: "Advance Payment", ADVANCE_PAYMENT: "Advance Payment",
     NET_15: "Net 15", NET_30: "Net 30", NET_45: "Net 45", NET_60: "Net 60",
   };
+
+  const manager = (raw.accountManager ?? raw.account_manager ?? raw.accountManagerId ?? raw.account_manager_id) as Record<string, unknown> | string | null | undefined;
+  const managerName = s(raw.accountManagerName ?? raw.account_manager_name);
 
   return {
     id:                   s(raw.id),
@@ -305,7 +303,8 @@ function mapApiLead(raw: Record<string, unknown>): LeadRecord {
     twitter:              s(raw.twitter),
     youtube:              s(raw.youtube),
     googleBusiness:       s(raw.googleBusiness ?? raw.google_business),
-    accountManager:       s(raw.accountManager ?? raw.account_manager),
+    accountManager:       typeof manager === "object" && manager ? s(manager.id) : s(manager),
+    accountManagerName:   typeof manager === "object" && manager ? s(manager.name ?? manager.email) : (managerName || undefined),
     leadSource:           (LEAD_SOURCE_FROM_API[s(raw.leadSource ?? raw.lead_source).toUpperCase()] ?? s(raw.leadSource ?? raw.lead_source)) as Client["leadSource"],
     paymentTerms:         (PAYMENT_TERMS_FROM_API[s(raw.paymentTerms ?? raw.payment_terms).toUpperCase()] ?? s(raw.paymentTerms ?? raw.payment_terms)) as Client["paymentTerms"],
     creditLimit:          s(raw.creditLimit ?? raw.credit_limit),
@@ -335,12 +334,13 @@ function mapApiLead(raw: Record<string, unknown>): LeadRecord {
 }
 
 export default function LeadsPage() {
-  const router = useRouter();
+  const { currentUser, can } = useAuthRbac();
+  const canAssignLeads = can("leads", "ASSIGN") || can("leads", "REASSIGN");
   const [leads, setLeads] = useState<LeadRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [converting, setConverting] = useState<string | null>(null);
-  const [wonCount, setWonCount] = useState(0);
+  const [assignableUsers, setAssignableUsers] = useState<User[]>([]);
   const [selectedLead, setSelectedLead] = useState<LeadRecord | null>(null);
   const [notesByLead, setNotesByLead] = useState<Record<string, LeadNote[]>>({});
   const [remindersByLead, setRemindersByLead] = useState<Record<string, LeadReminder[]>>({});
@@ -365,9 +365,11 @@ export default function LeadsPage() {
   const [assignedFilter, setAssignedFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [counterFilter, setCounterFilter] = useState<"" | "New" | "Hot" | "Cold" | "Won" | "Lost" | "QuotationSent" | "FollowUpToday" | "Total">("");
+  const [counterFilter, setCounterFilter] = useState<"" | "New" | "Hot" | "Warm" | "Cold" | "Won" | "Lost" | "QuotationSent" | "FollowUpToday" | "Total">("");
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(10);
+  const [pageSize, setPageSize] = useState(6);
+  const [sortBy, setSortBy] = useState<LeadSort>("newest");
+  const [showMoreMetrics, setShowMoreMetrics] = useState(false);
 
   const visibleLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -392,9 +394,11 @@ export default function LeadsPage() {
         if (toTs !== null && createdTs > toTs) return false;
       }
       // Counter card filter (overrides other stage/tag filters)
+      if (counterFilter === "Total") return true;
       if (counterFilter === "FollowUpToday") return followUpLeadIds!.has(lead.id ?? "");
       if (counterFilter === "New")   return lead.leadStage === "New";
       if (counterFilter === "Hot")   return lead.leadStage === "Hot";
+      if (counterFilter === "Warm")  return lead.leadStage === "Warm";
       if (counterFilter === "Cold")  return lead.leadStage === "Cold";
       if (counterFilter === "Won")   return lead.leadStage === "Won";
       if (counterFilter === "Lost")  return lead.leadStage === "Lost";
@@ -414,8 +418,37 @@ export default function LeadsPage() {
     });
   }, [leads, search, industry, source, stageFilter, tagFilter, assignedFilter, fromDate, toDate, counterFilter, remindersByLead]);
 
-  const totalPages = Math.max(1, Math.ceil(visibleLeads.length / pageSize));
-  const pagedLeads = visibleLeads.slice((page - 1) * pageSize, page * pageSize);
+  const sortedLeads = useMemo(() => {
+    return [...visibleLeads].sort((a, b) => {
+      if (sortBy === "company") {
+        return (a.companyName || a.contactPersonName || "").localeCompare(b.companyName || b.contactPersonName || "");
+      }
+      const aTime = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const bTime = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return sortBy === "newest" ? bTime - aTime : aTime - bTime;
+    });
+  }, [visibleLeads, sortBy]);
+
+  const totalPages = Math.max(1, Math.ceil(sortedLeads.length / pageSize));
+  const pagedLeads = sortedLeads.slice((page - 1) * pageSize, page * pageSize);
+  const hasActiveFilters = Boolean(search || industry || stageFilter || source || tagFilter || assignedFilter || fromDate || toDate || counterFilter);
+  const activeFilterCount = [search, industry, stageFilter, source, tagFilter, assignedFilter, fromDate, toDate, counterFilter].filter(Boolean).length;
+  const clearFilters = () => {
+    setSearch("");
+    setIndustry("");
+    setStageFilter("");
+    setSource("");
+    setTagFilter("");
+    setAssignedFilter("");
+    setFromDate("");
+    setToDate("");
+    setCounterFilter("");
+    setPage(1);
+  };
+
+  useEffect(() => {
+    setPage((currentPage) => Math.min(currentPage, totalPages));
+  }, [totalPages]);
 
   // Reset to page 1 whenever filters change
   const setSearch2 = (v: string) => { setSearch(v); setCounterFilter(""); setPage(1); };
@@ -436,7 +469,7 @@ export default function LeadsPage() {
     setError(null);
     setLoading(true);
     try {
-      const result = await clientsApi.list({ status: "LEAD", limit: 200 });
+      const result = await leadsApi.list({ limit: 200 });
       console.log("[fetchLeads] raw API response:", JSON.stringify(result.data, null, 2));
       const mapped = (result.data as unknown as Record<string, unknown>[]).map(mapApiLead);
       console.log("[fetchLeads] mapped leads:", JSON.stringify(mapped, null, 2));
@@ -448,25 +481,29 @@ export default function LeadsPage() {
     }
   };
 
-  const fetchWonCount = async () => {
+  const fetchAssignableUsers = async () => {
     try {
-      setWonCount(await clientsApi.getWonCount());
-    } catch { /* ignore if backend unavailable */ }
+      const users = await usersApi.list({ isActive: true, assignableTo: "leads" });
+      setAssignableUsers(users);
+    } catch { /* keep the dropdown usable with Unassigned only */ }
   };
 
-  useEffect(() => { fetchLeads(); fetchWonCount(); }, []);
+  useEffect(() => { fetchLeads(); fetchAssignableUsers(); }, []);
 
   const handleConvert = async (lead: LeadRecord) => {
     if (!lead.id) return;
-    addActivity(lead.id, "Converted to Client", `${lead.companyName || "Lead"} marked as Active client`);
     setConverting(lead.id);
+    setError(null);
     try {
-      await clientsApi.update(lead.id, { status: "Active", leadStage: undefined });
-    } catch { /* ignore if backend unavailable */ }
-    setLeads((prev) => prev.filter((item) => item.id !== lead.id));
-    setSelectedLead((prev) => (prev?.id === lead.id ? null : prev));
-    setConverting(null);
-    fetchWonCount();
+      await leadsApi.convert(lead.id);
+      addActivity(lead.id, "Converted to Client", `${lead.companyName || "Lead"} marked as Active client`);
+      setLeads((prev) => prev.filter((item) => item.id !== lead.id));
+      setSelectedLead((prev) => (prev?.id === lead.id ? null : prev));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to convert lead");
+    } finally {
+      setConverting(null);
+    }
   };
 
   useEffect(() => {
@@ -480,7 +517,7 @@ export default function LeadsPage() {
     setFocusQuotationList(Boolean(options?.focusQuotations));
     // Fetch full detail (designation, address, bank, notes, etc.)
     if (lead.id) {
-      clientsApi.get(lead.id).then((full) => {
+      leadsApi.get(lead.id).then((full) => {
         const fullMapped = mapApiLead(full as unknown as Record<string, unknown>);
         setLeads((prev) => prev.map((l) => l.id === lead.id ? fullMapped : l));
         setSelectedLead(fullMapped);
@@ -588,36 +625,33 @@ export default function LeadsPage() {
   };
 
   const assignLead = (leadId: string, accountManager: string) => {
-    setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, accountManager } : l));
-    setSelectedLead((prev) => prev?.id === leadId ? { ...prev, accountManager } : prev);
-    addActivity(leadId, "Lead Assigned", `Assigned to ${accountManager || "Unassigned"}`);
+    const accountManagerName = assignableUsers.find((user) => user.id === accountManager)?.name;
+    setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, accountManager, accountManagerName } : l));
+    setSelectedLead((prev) => prev?.id === leadId ? { ...prev, accountManager, accountManagerName } : prev);
+    addActivity(leadId, "Lead Assigned", `Assigned to ${accountManagerName || "Unassigned"}`);
     clientsApi.update(leadId, { accountManager }).catch(() => { /* ignore */ });
   };
 
   const assignSelectedLeadToMe = () => {
     if (!selectedLead?.id) return;
-    assignLead(selectedLead.id, CURRENT_USER);
+    if (currentUser?.id) assignLead(selectedLead.id, currentUser.id);
   };
 
+  const assignedUserName = (lead: LeadRecord) =>
+    lead.accountManagerName
+    || assignableUsers.find((user) => user.id === lead.accountManager)?.name
+    || (lead.accountManager && lead.accountManager === currentUser?.id ? currentUser.name : "")
+    || "Unassigned";
+
   const updateLeadStage = async (leadId: string, leadStage: LeadStage) => {
-    addActivity(leadId, "Stage Changed", `Status updated to "${leadStage}"`);
-
-    if (leadStage === "Won") {
-      setConverting(leadId);
-      addActivity(leadId, "Converted to Client", "Lead marked as Active client after winning the deal");
-      try {
-        await clientsApi.update(leadId, { status: "Active", leadStage: undefined });
-      } catch { /* ignore if backend unavailable */ }
-      setLeads((prev) => prev.filter((item) => item.id !== leadId));
-      setSelectedLead((prev) => (prev?.id === leadId ? null : prev));
-      setConverting(null);
-      fetchWonCount();
-      return;
+    try {
+      await leadsApi.updateStage(leadId, leadStage);
+      addActivity(leadId, "Stage Changed", `Status updated to "${leadStage}"`);
+      setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, leadStage } : l));
+      setSelectedLead((prev) => prev?.id === leadId ? { ...prev, leadStage } : prev);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to update lead stage");
     }
-
-    setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, leadStage } : l));
-    setSelectedLead((prev) => prev?.id === leadId ? { ...prev, leadStage } : prev);
-    clientsApi.update(leadId, { leadStage }).catch(() => { /* ignore */ });
   };
 
   const updateLeadTags = (leadId: string, tags: string[]) => {
@@ -730,6 +764,7 @@ export default function LeadsPage() {
   const totalLeads     = allLeads.length;
   const newLeads       = useMemo(() => allLeads.filter((l) => l.leadStage === "New").length,  [allLeads]);
   const hotLeads       = useMemo(() => allLeads.filter((l) => l.leadStage === "Hot").length,  [allLeads]);
+  const warmLeads      = useMemo(() => allLeads.filter((l) => l.leadStage === "Warm").length, [allLeads]);
   const coldLeads      = useMemo(() => allLeads.filter((l) => l.leadStage === "Cold").length, [allLeads]);
   const lostLeads      = useMemo(() => allLeads.filter((l) => l.leadStage === "Lost").length, [allLeads]);
   const quotationSentLeads = useMemo(() => allLeads.filter((l) => l.leadStage === "Quotation Sent").length, [allLeads]);
@@ -743,72 +778,46 @@ export default function LeadsPage() {
 
   return (
     <main className="min-h-screen bg-[#F6F8FB] p-4 space-y-6 lg:p-6">
-      <section className="relative overflow-hidden rounded-[28px] border border-white bg-[#061526] p-6 shadow-[0_24px_70px_rgba(15,23,42,0.16)] lg:p-7">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_16%_18%,rgba(14,165,233,0.30),transparent_28%),radial-gradient(circle_at_90%_8%,rgba(230,0,70,0.22),transparent_24%),linear-gradient(135deg,rgba(255,255,255,0.10),transparent_42%)]" />
-        <div className="relative flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/8 px-3 py-1.5 text-xs font-bold uppercase tracking-[0.18em] text-sky-100">
-              <Sparkles className="h-3.5 w-3.5 text-[#0EA5E9]" />
-              Goanny AI CRM
-            </div>
-            <h1 className="mt-4 text-3xl font-black tracking-tight text-white lg:text-4xl">Leads Command Center</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-              Track prospects, reminders, quotations, ownership, and next actions before they become active clients.
-            </p>
+      <section className="relative overflow-hidden rounded-[18px] bg-[#0b3b5a] px-4 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.12)] lg:px-5">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_90%_0%,rgba(230,0,70,0.22),transparent_30%)]" />
+        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="shrink-0">
+            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-sky-100">CRM / Leads</p>
+            <h1 className="mt-0.5 text-xl font-black tracking-tight text-white">Leads</h1>
+            <p className="text-[11px] text-slate-200">Manage prospects before conversion.</p>
           </div>
-
-          <div className="flex flex-wrap gap-3">
-            <button
-              type="button"
-              onClick={fetchLeads}
-              className="inline-flex h-11 items-center gap-2 rounded-2xl border border-white/12 bg-white/8 px-4 text-sm font-bold text-white backdrop-blur transition hover:-translate-y-0.5 hover:bg-white/14"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Refresh
-            </button>
-            <Link
-              href="/crm/leads/new"
-              className="inline-flex h-11 items-center gap-2 rounded-2xl bg-white px-4 text-sm font-black text-[#063A66] shadow-lg shadow-sky-950/20 transition hover:-translate-y-0.5"
-            >
-              <Plus className="h-4 w-4" /> Add Lead
-            </Link>
+          <div className="relative flex-1 lg:ml-4">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input value={search} onChange={(e) => setSearch2(e.target.value)} placeholder="Search company, contact, phone or email" className="h-10 w-full rounded-xl border border-white/10 bg-white/95 pl-10 pr-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:ring-4 focus:ring-sky-200/30" />
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button type="button" onClick={fetchLeads} className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3.5 text-xs font-bold text-white transition hover:bg-white/20"><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
+            <Link href="/crm/leads/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-3.5 text-xs font-black text-[#063A66]"><Plus className="h-3.5 w-3.5" /> Add Lead</Link>
           </div>
         </div>
       </section>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 2xl:grid-cols-8">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <StatCard label="Total Leads"     value={totalLeads}         icon={Target}      tone="blue"    onClick={() => toggleCounter("Total")}         active={counterFilter === "Total"} />
         <StatCard label="New Leads"       value={newLeads}           icon={UserPlus}    tone="indigo"  onClick={() => toggleCounter("New")}           active={counterFilter === "New"} />
         <StatCard label="Reminders Today" value={remindersToday}     icon={Clock}       tone="amber"   onClick={() => toggleCounter("FollowUpToday")} active={counterFilter === "FollowUpToday"} />
         <StatCard label="Hot Leads"       value={hotLeads}           icon={TrendingUp}  tone="red"     onClick={() => toggleCounter("Hot")}           active={counterFilter === "Hot"} />
-        <StatCard label="Cold Leads"      value={coldLeads}          icon={Snowflake}   tone="sky"     onClick={() => toggleCounter("Cold")}          active={counterFilter === "Cold"} />
-        <StatCard label="Won Leads"       value={wonCount}           icon={UserCheck}   tone="emerald" onClick={() => router.push("/crm/clients?status=Active")} external />
+        <StatCard label="Won Leads"       value={allLeads.filter((lead) => lead.leadStage === "Won").length} icon={UserCheck} tone="emerald" onClick={() => toggleCounter("Won")} active={counterFilter === "Won"} />
         <StatCard label="Quotation Sent"  value={quotationSentLeads} icon={FileText}    tone="violet"  onClick={() => toggleCounter("QuotationSent")} active={counterFilter === "QuotationSent"} />
-        <StatCard label="Lost Leads"      value={lostLeads}          icon={AlertCircle} tone="zinc"    onClick={() => toggleCounter("Lost")}          active={counterFilter === "Lost"} />
       </div>
 
-      <section className="rounded-[24px] border border-slate-200 bg-white p-4 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
-        <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <section className="rounded-[18px] border border-slate-200 bg-white p-3 shadow-[0_12px_32px_rgba(15,23,42,0.08)] lg:p-4">
+        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h2 className="text-base font-black text-slate-950">Lead Filters</h2>
-            <p className="text-sm text-slate-500">Search, segment, and prioritize active prospects.</p>
+            <h2 className="text-base font-black text-slate-950">Lead Directory</h2>
+            <p className="text-xs text-slate-500">Filter and manage your prospects.</p>
           </div>
           <div className="text-xs font-semibold text-slate-400">
             {visibleLeads.length} visible of {totalLeads} leads
           </div>
         </div>
 
-        <div className="grid gap-3 lg:grid-cols-[minmax(280px,1.6fr)_auto_1fr_1fr_1fr_1fr_1fr_auto_auto]">
-          <div className="relative min-w-[220px]">
-            <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input
-              value={search}
-              onChange={(e) => setSearch2(e.target.value)}
-              placeholder="Search leads by name, code, email, or mobile"
-              className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100"
-            />
-          </div>
-
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <DateRangePicker
             from={fromDate}
             to={toDate}
@@ -859,7 +868,7 @@ export default function LeadsPage() {
             >
               <option value="">All Assigned</option>
               <option value="unassigned">Unassigned</option>
-              {USER_LIST.map((u) => <option key={u} value={u}>{u}</option>)}
+              {assignableUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
             </select>
             <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
@@ -876,13 +885,28 @@ export default function LeadsPage() {
             <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           </div>
 
-          {(search || industry || stageFilter || source || tagFilter || assignedFilter || fromDate || toDate || counterFilter) && (
+          <div className="relative min-w-[150px]">
+            <select
+              value={sortBy}
+              onChange={(e) => { setSortBy(e.target.value as LeadSort); setPage(1); }}
+              aria-label="Sort leads"
+              className="h-11 w-full appearance-none rounded-2xl border border-slate-200 bg-white px-3 pr-9 text-sm font-semibold text-slate-600 outline-none transition focus:border-sky-300 focus:ring-4 focus:ring-sky-100"
+            >
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="company">Company A–Z</option>
+            </select>
+            <ChevronDown className="w-4 h-4 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          </div>
+
+          {hasActiveFilters && (
             <button
               type="button"
-              onClick={() => { setSearch(""); setIndustry(""); setStageFilter(""); setSource(""); setTagFilter(""); setAssignedFilter(""); setFromDate(""); setToDate(""); setCounterFilter(""); setPage(1); }}
+              onClick={clearFilters}
+              aria-label={`Clear ${activeFilterCount} active filters`}
               className="inline-flex h-11 items-center justify-center gap-1.5 rounded-2xl border border-red-200 bg-red-50 px-3 text-sm font-bold text-red-600 transition hover:bg-red-100"
             >
-              <X className="w-4 h-4" /> Clear
+              <X className="w-4 h-4" /> Clear{activeFilterCount > 1 ? ` (${activeFilterCount})` : ""}
             </button>
           )}
           <button
@@ -893,6 +917,31 @@ export default function LeadsPage() {
             <RefreshCw className="w-4 h-4" /> Refresh
           </button>
         </div>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-2.5">
+          <button type="button" onClick={() => setShowMoreMetrics((value) => !value)} className="text-xs font-bold text-slate-500 hover:text-sky-700">
+            {showMoreMetrics ? "Hide stage metrics" : "More stage metrics"}
+          </button>
+          {showMoreMetrics && (
+            <>
+              <button type="button" onClick={() => toggleCounter("Warm")} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${counterFilter === "Warm" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>Warm {warmLeads}</button>
+              <button type="button" onClick={() => toggleCounter("Cold")} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${counterFilter === "Cold" ? "bg-cyan-100 text-cyan-700" : "bg-slate-100 text-slate-600"}`}>Cold {coldLeads}</button>
+              <button type="button" onClick={() => toggleCounter("Lost")} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${counterFilter === "Lost" ? "bg-zinc-200 text-zinc-700" : "bg-slate-100 text-slate-600"}`}>Lost {lostLeads}</button>
+            </>
+          )}
+        </div>
+        {hasActiveFilters && (
+          <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3" aria-label="Active filters">
+            <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Active</span>
+            {counterFilter && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">View: {counterFilter === "FollowUpToday" ? "Reminders today" : counterFilter}</span>}
+            {search && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Search: {search}</span>}
+            {industry && <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">Industry: {industry}</span>}
+            {stageFilter && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">Stage: {stageFilter}</span>}
+            {source && <span className="rounded-full bg-violet-50 px-2.5 py-1 text-xs font-semibold text-violet-700">Source: {source}</span>}
+            {tagFilter && <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-700">Tag: {tagFilter}</span>}
+            {assignedFilter && <span className="rounded-full bg-cyan-50 px-2.5 py-1 text-xs font-semibold text-cyan-700">Owner: {assignedFilter === "unassigned" ? "Unassigned" : assignableUsers.find((user) => user.id === assignedFilter)?.name || "Selected owner"}</span>}
+            {(fromDate || toDate) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Created: {fromDate || "Any"} – {toDate || "Any"}</span>}
+          </div>
+        )}
       </section>
 
       {error ? (
@@ -904,7 +953,7 @@ export default function LeadsPage() {
           <button onClick={fetchLeads} className="mt-4 rounded-2xl bg-red-50 px-4 py-2 text-xs font-bold text-red-600 transition hover:bg-red-100">Retry</button>
         </section>
       ) : loading ? (
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-3 xl:grid-cols-2">
           <SkeletonCard />
           <SkeletonCard />
           <SkeletonCard />
@@ -915,105 +964,165 @@ export default function LeadsPage() {
             <Target className="w-8 h-8" />
           </div>
           <p className="mt-4 text-base font-black text-slate-800">No leads found</p>
-          <p className="mt-1 text-sm text-slate-500">Add a new lead or adjust the current filters.</p>
-          <Link href="/crm/leads/new" className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-[#0070B8] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-sky-100 transition hover:-translate-y-0.5 hover:bg-[#075f99]">
-            <Plus className="w-4 h-4" /> Add Lead
-          </Link>
+          <p className="mt-1 text-sm text-slate-500">{hasActiveFilters ? "Try clearing a filter or changing your search." : "Add your first lead to start tracking opportunities."}</p>
+          {hasActiveFilters ? (
+            <button type="button" onClick={clearFilters} className="mt-5 inline-flex items-center gap-2 rounded-2xl border border-slate-200 px-4 py-2.5 text-sm font-bold text-slate-700 transition hover:bg-slate-50">
+              <X className="w-4 h-4" /> Clear filters
+            </button>
+          ) : (
+            <Link href="/crm/leads/new" className="mt-5 inline-flex items-center gap-2 rounded-2xl bg-[#0070B8] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-sky-100 transition hover:-translate-y-0.5 hover:bg-[#075f99]">
+              <Plus className="w-4 h-4" /> Add Lead
+            </Link>
+          )}
         </section>
       ) : (
         <>
-        <section className="grid grid-cols-1 gap-4 2xl:grid-cols-2">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-3">
           {pagedLeads.map((lead) => {
             const location = [lead.billingAddress?.city, lead.billingAddress?.state].filter(Boolean).join(", ");
             const initials = (lead.companyName || lead.contactPersonName || "LD").slice(0, 2).toUpperCase();
             const reqCount = lead.developmentServices.length + lead.digitalMarketingServices.length;
+            const stageColor = LEAD_STAGE_COLORS[lead.leadStage];
+
             return (
               <article
                 key={lead.id}
-                className="group overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.06)] transition-all duration-300 hover:-translate-y-0.5 hover:border-sky-200 hover:shadow-[0_24px_55px_rgba(15,23,42,0.10)]"
+                className="group overflow-hidden rounded-[18px] border border-slate-200 bg-white shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-300 hover:shadow-[0_12px_32px_rgba(0,0,0,0.10)] hover:border-slate-300"
               >
-                <div className="h-1 bg-gradient-to-r from-[#0070B8] via-[#0EA5E9] to-[#E60046]" />
-                <div className="flex items-start gap-4 p-5 pb-4">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-gradient-to-br from-[#0070B8] to-[#0EA5E9] text-sm font-black text-white shadow-lg shadow-sky-100 transition duration-300 group-hover:scale-105 group-hover:rotate-3">
-                    {initials}
+                {/* Header Section */}
+                <div className="flex flex-col sm:flex-row sm:items-start gap-3 p-4 pb-3 border-b border-slate-100">
+                  {/* Avatar */}
+                  <div className="flex-shrink-0">
+                    <div className={`flex h-11 w-11 items-center justify-center rounded-xl ${
+                      lead.leadStage === "Hot" ? "bg-gradient-to-br from-red-500 to-red-600" :
+                      lead.leadStage === "Won" ? "bg-gradient-to-br from-emerald-500 to-emerald-600" :
+                      lead.leadStage === "Cold" ? "bg-gradient-to-br from-cyan-500 to-cyan-600" :
+                      "bg-gradient-to-br from-blue-500 to-indigo-600"
+                    } text-sm font-black text-white shadow-lg transition-transform duration-300 group-hover:scale-110`}>
+                      {initials}
+                    </div>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-start justify-between gap-2">
-                      <button
-                        type="button"
-                        onClick={() => openLead(lead)}
-                        className="text-left text-base font-black leading-snug text-slate-950 break-words transition hover:text-[#0070B8]"
-                      >
-                        {lead.companyName || "Unnamed Lead"}
-                      </button>
-                      <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-black ring-1 ring-white ${LEAD_STAGE_COLORS[lead.leadStage]}`}>
+
+                  {/* Main Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => openLead(lead)}
+                          className="text-left text-lg font-bold text-slate-900 hover:text-blue-600 transition truncate"
+                        >
+                          {lead.companyName || "Unnamed Lead"}
+                        </button>
+                        <p className="text-sm text-slate-500 mt-0.5 truncate">
+                          {[lead.contactPersonName, lead.designation].filter(Boolean).join(" · ") || "Contact pending"}
+                        </p>
+                      </div>
+                      <span className={`flex-shrink-0 rounded-lg px-3 py-1 text-xs font-bold whitespace-nowrap ${stageColor}`}>
                         {lead.leadStage}
                       </span>
                     </div>
-                    <p className="mt-1 truncate text-sm font-medium text-slate-500">
-                      {[lead.contactPersonName, lead.designation].filter(Boolean).join(" · ") || "Contact pending"}
-                    </p>
-                    <div className="mt-3 flex flex-wrap items-center gap-1.5">
-                      {lead.industry && (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-600">{lead.industry}</span>
-                      )}
-                      {lead.leadSource && (
-                        <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[11px] font-bold text-[#0070B8]">{lead.leadSource}</span>
-                      )}
-                      {lead.clientCode && (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-mono text-slate-500">{lead.clientCode}</span>
-                      )}
-                      {lead.tags.slice(0, 3).map((tag) => (
-                        <span key={tag} className="rounded-full border border-amber-200 bg-amber-50 px-2.5 py-1 text-[11px] font-bold text-amber-700">{tag}</span>
-                      ))}
-                      {lead.tags.length > 3 && (
-                        <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[11px] font-bold text-slate-500">+{lead.tags.length - 3}</span>
-                      )}
+                  </div>
+                </div>
+
+                {/* Contact Info Grid */}
+                <div className="px-4 py-3 bg-slate-50/40 grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  {lead.mobile && (
+                    <div className="flex items-start gap-2">
+                      <Phone className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500 font-semibold">Phone</p>
+                        <p className="text-sm font-medium text-slate-800 truncate">{lead.mobile}</p>
+                      </div>
                     </div>
+                  )}
+                  {lead.primaryEmail && (
+                    <div className="flex items-start gap-2">
+                      <Mail className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500 font-semibold">Email</p>
+                        <p className="text-sm font-medium text-slate-800 truncate">{lead.primaryEmail}</p>
+                      </div>
+                    </div>
+                  )}
+                  {location && (
+                    <div className="flex items-start gap-2">
+                      <MapPin className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500 font-semibold">Location</p>
+                        <p className="text-sm font-medium text-slate-800 truncate">{location}</p>
+                      </div>
+                    </div>
+                  )}
+                  {lead.website && (
+                    <div className="flex items-start gap-2">
+                      <Globe className="w-4 h-4 text-slate-400 flex-shrink-0 mt-0.5" />
+                      <div className="min-w-0">
+                        <p className="text-xs text-slate-500 font-semibold">Website</p>
+                        <a href={lead.website} target="_blank" rel="noreferrer" className="text-sm font-medium text-blue-600 hover:underline truncate">
+                          {lead.website.replace(/^https?:\/\//, "")}
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* Metadata Tags */}
+                <div className="px-5 py-3 flex flex-wrap gap-2">
+                  {lead.industry && (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-100">
+                      {lead.industry}
+                    </span>
+                  )}
+                  {lead.leadSource && (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 border border-blue-100">
+                      {lead.leadSource}
+                    </span>
+                  )}
+                  {lead.clientCode && (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-mono text-slate-700 border border-slate-200">
+                      {lead.clientCode}
+                    </span>
+                  )}
+                  {lead.tags.slice(0, 2).map((tag) => (
+                    <span key={tag} className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700">
+                      {tag}
+                    </span>
+                  ))}
+                  {lead.tags.length > 2 && (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700">
+                      +{lead.tags.length - 2}
+                    </span>
+                  )}
+                </div>
+
+                {/* Assignment and Services Info */}
+                <div className="px-5 py-3 border-t border-slate-100 flex flex-wrap gap-3 text-xs">
+                  <div className="flex items-center gap-2">
+                    <UserCheck className="w-4 h-4 text-slate-400" />
+                    <span className="text-slate-600">Assigned: <span className="font-semibold text-slate-900">{assignedUserName(lead)}</span></span>
+                  </div>
+                  {reqCount > 0 && (
+                    <div className="flex items-center gap-2">
+                      <Briefcase className="w-4 h-4 text-slate-400" />
+                      <span className="text-slate-600">Services: <span className="font-semibold text-slate-900">{reqCount}</span></span>
+                    </div>
+                  )}
+                  <div className="ml-auto flex items-center gap-2 text-slate-600">
+                    <Calendar className="w-4 h-4 text-slate-400" />
+                    {formatDate(lead.createdAt)}
                   </div>
                 </div>
 
-                <div className="mx-5 grid grid-cols-1 gap-2 rounded-2xl bg-slate-50 p-3 text-xs text-slate-600 sm:grid-cols-2 xl:grid-cols-4">
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-slate-400"><Phone className="w-3.5 h-3.5" /></span>
-                    <span className="truncate font-semibold">{lead.mobile || "-"}</span>
-                  </div>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-slate-400"><Mail className="w-3.5 h-3.5" /></span>
-                    <span className="truncate font-semibold">{lead.primaryEmail || "-"}</span>
-                  </div>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-slate-400"><MapPin className="w-3.5 h-3.5" /></span>
-                    <span className="truncate font-semibold">{location || lead.shippingAddress.city || "-"}</span>
-                  </div>
-                  <div className="flex min-w-0 items-center gap-2">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white text-slate-400"><Globe className="w-3.5 h-3.5" /></span>
-                    {lead.website
-                      ? <a href={lead.website} target="_blank" rel="noreferrer" className="truncate font-bold text-[#0070B8] hover:underline">{lead.website.replace(/^https?:\/\//, "")}</a>
-                      : <span className="text-slate-400">—</span>}
-                  </div>
-                </div>
-
-                <div className="mx-5 mt-3 flex flex-wrap items-center gap-3 rounded-2xl border border-slate-100 bg-white px-3 py-2.5 text-[11px] text-slate-500">
-                  <span className="rounded-full bg-slate-50 px-2.5 py-1">
-                    Assigned: <span className="font-semibold text-slate-700">{lead.accountManager || "Unassigned"}</span>
-                  </span>
-                  <span className="rounded-full bg-slate-50 px-2.5 py-1">
-                    Services: <span className="font-semibold text-slate-700">{reqCount}</span>
-                  </span>
-                  <span className="ml-auto flex items-center gap-1 rounded-full bg-slate-50 px-2.5 py-1">
-                    <Calendar className="w-3 h-3" />
-                    {formatDateTime(lead.createdAt)}
-                  </span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2 px-5 py-4">
+                {/* Action Buttons */}
+                <div className="px-5 py-4 bg-slate-50/40 border-t border-slate-100 flex flex-wrap gap-2">
                   {lead.mobile && (
                     <a
                       href={`tel:${phoneForUrl(lead.mobile)}`}
-                      className="inline-flex items-center gap-1 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-[11px] font-bold text-emerald-700 transition hover:-translate-y-0.5 hover:bg-emerald-100"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500 text-white px-3 py-2 text-xs font-bold transition-all duration-200 hover:bg-emerald-600 hover:shadow-lg hover:-translate-y-0.5"
+                      title="Call lead"
                     >
-                      <Phone className="w-3 h-3" /> Call
+                      <Phone className="w-3.5 h-3.5" /> Call
                     </a>
                   )}
                   {(lead.whatsapp || lead.mobile) && (
@@ -1021,22 +1130,25 @@ export default function LeadsPage() {
                       href={`https://wa.me/${phoneForUrl(lead.whatsapp || lead.mobile)}?text=${encodeURIComponent(`Hi ${lead.contactPersonName || lead.companyName}, following up regarding your enquiry with us.`)}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="inline-flex items-center gap-1 rounded-xl border border-green-200 bg-green-50 px-3 py-2 text-[11px] font-bold text-green-700 transition hover:-translate-y-0.5 hover:bg-green-100"
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-green-500 text-white px-3 py-2 text-xs font-bold transition-all duration-200 hover:bg-green-600 hover:shadow-lg hover:-translate-y-0.5"
+                      title="Send WhatsApp message"
                     >
-                      <MessageCircle className="w-3 h-3" /> WhatsApp
+                      <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
                     </a>
                   )}
                   <button
                     onClick={() => openLead(lead)}
-                    className="inline-flex items-center gap-1 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-[11px] font-bold text-[#0070B8] transition hover:-translate-y-0.5 hover:bg-sky-100"
+                    className="inline-flex items-center gap-1.5 rounded-lg border-2 border-blue-500 text-blue-600 px-3 py-2 text-xs font-bold transition-all duration-200 hover:bg-blue-50 hover:shadow-md hover:-translate-y-0.5 ml-auto"
+                    title="View lead details"
                   >
-                    <Eye className="w-3 h-3" /> View
+                    <Eye className="w-3.5 h-3.5" /> View Details
                   </button>
                   <button
                     onClick={() => openLead(lead, { focusQuotations: true })}
-                    className="inline-flex items-center gap-1 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-[11px] font-bold text-blue-700 transition hover:-translate-y-0.5 hover:bg-blue-100"
+                    className="inline-flex items-center gap-1.5 rounded-lg bg-purple-500 text-white px-3 py-2 text-xs font-bold transition-all duration-200 hover:bg-purple-600 hover:shadow-lg hover:-translate-y-0.5"
+                    title="Create or view quotation"
                   >
-                    <FileText className="w-3 h-3" /> Quotation
+                    <FileText className="w-3.5 h-3.5" /> Quotation
                   </button>
                 </div>
               </article>
@@ -1045,8 +1157,7 @@ export default function LeadsPage() {
         </section>
 
         {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-slate-200 bg-white px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-slate-200 bg-white px-4 py-3 shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
             <div className="flex items-center gap-3">
               <p className="text-xs text-slate-500">
                 Showing <span className="font-semibold text-slate-700">{(page - 1) * pageSize + 1}–{Math.min(page * pageSize, visibleLeads.length)}</span> of <span className="font-semibold text-slate-700">{visibleLeads.length}</span> leads
@@ -1097,8 +1208,7 @@ export default function LeadsPage() {
                 Next
               </button>
             </div>
-          </div>
-        )}
+        </div>
         </>
       )}
 
@@ -1212,20 +1322,28 @@ export default function LeadsPage() {
                     <div>
                       <div className="flex items-center justify-between mb-1.5">
                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wide">Assigned To</p>
-                        <button type="button" onClick={assignSelectedLeadToMe}
-                          className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold">
-                          Assign to me
-                        </button>
+                        {canAssignLeads && (
+                          <button type="button" onClick={assignSelectedLeadToMe}
+                            className="text-[10px] text-indigo-600 hover:text-indigo-800 font-semibold">
+                            Assign to me
+                          </button>
+                        )}
                       </div>
-                      <div className="relative">
-                        <select value={selectedLead.accountManager || ""}
-                          onChange={(e) => selectedLead.id && assignLead(selectedLead.id, e.target.value)}
-                          className="w-full px-3 pr-8 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none font-semibold">
-                          <option value="">Unassigned</option>
-                          {USER_LIST.map((u) => <option key={u} value={u}>{u}</option>)}
-                        </select>
-                        <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                      </div>
+                      {canAssignLeads ? (
+                        <div className="relative">
+                          <select value={selectedLead.accountManager || ""}
+                            onChange={(e) => selectedLead.id && assignLead(selectedLead.id, e.target.value)}
+                            className="w-full px-3 pr-8 py-2 text-xs border border-slate-200 rounded-lg outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100 bg-white appearance-none font-semibold">
+                            <option value="">Unassigned</option>
+                            {assignableUsers.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}
+                          </select>
+                          <ChevronDown className="w-3.5 h-3.5 absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                      ) : (
+                        <div className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-semibold text-slate-700">
+                          {assignedUserName(selectedLead)}
+                        </div>
+                      )}
                     </div>
                   </div>
 

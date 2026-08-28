@@ -111,6 +111,13 @@ interface PaginatedListRes {
     pagination:  { total: number; page: number; limit: number; pages: number };
   };
 }
+interface ClientQuotationListRes {
+  success: boolean;
+  data: QuotationListItem[] | {
+    quotations: QuotationListItem[];
+    pagination?: { total?: number };
+  };
+}
 interface ActivityRes {
   success: boolean;
   data: {
@@ -178,8 +185,9 @@ export const quotationsApi = {
     if (params?.page)   p.set("page",   String(params.page));
     if (params?.limit)  p.set("limit",  String(params.limit));
     const qs = p.toString();
-    const r = await request<PaginatedListRes>(`/api/clients/${clientId}/quotations${qs ? `?${qs}` : ""}`);
-    return { data: r.data.quotations, total: r.data.pagination.total };
+    const r = await request<ClientQuotationListRes>(`/api/clients/${clientId}/quotations${qs ? `?${qs}` : ""}`);
+    if (Array.isArray(r.data)) return { data: r.data, total: r.data.length };
+    return { data: r.data.quotations, total: r.data.pagination?.total ?? r.data.quotations.length };
   },
 
   async getActivity(id: string, params?: { page?: number; limit?: number }): Promise<{ logs: ActivityLog[]; total: number }> {

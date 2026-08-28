@@ -10,7 +10,7 @@ import {
   Sparkles, Building2, Mail, Phone, CalendarDays, X,
   TrendingUp, Clock3, ShieldCheck, Upload, MoreVertical,
   WalletCards, CircleDollarSign, BadgeIndianRupee, FileClock,
-  UserRoundCheck, Activity as ActivityIcon, ChevronLeft, ChevronRight, Download,
+  UserRoundCheck, Activity as ActivityIcon, ChevronLeft, ChevronRight,
 } from "lucide-react";
 import { clientsApi } from "@/lib/api/clients";
 import { invoicesApi } from "@/lib/api/invoices";
@@ -341,7 +341,6 @@ function ClientsPageInner() {
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [lastRefreshed, setLastRefreshed] = useState<Date | null>(null);
   const [accountManagers, setAccountManagers] = useState<AccountUser[]>([]);
-  const importing = false;
 
   // Filters
   const [searchInput, setSearchInput] = useState(searchParams.get("search") ?? "");
@@ -446,7 +445,7 @@ function ClientsPageInner() {
         page,
         limit,
       });
-      setClients((res.data ?? []).filter((c) => String(c.status).toUpperCase() !== "LEAD"));
+      setClients(res.data ?? []);
       setPagination({ total: res.total, pages: Math.max(1, res.pages) });
       setLastRefreshed(new Date());
     } catch (e: unknown) {
@@ -474,7 +473,7 @@ function ClientsPageInner() {
     router.replace(`/crm/clients${params.size ? `?${params.toString()}` : ""}`, { scroll: false });
   }, [search, statusFilter, industryFilter, accountManagerFilter, healthFilter, profileFilter, fromDate, toDate, page, limit, router]);
 
-  const total = statusCounts.Active + statusCounts.Inactive + statusCounts.Completed + statusCounts.Blacklisted;
+  const total = pagination.total;
   const displayedClients = useMemo(() => clients.filter((client) => {
     const score = getClientHealth(client).score;
     if (healthFilter === "healthy" && score < 80) return false;
@@ -525,69 +524,51 @@ function ClientsPageInner() {
   ];
 
   return (
-    <div className="space-y-4 bg-[#f7f9fc] p-3 lg:p-4">
-      <section className="relative overflow-visible rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-        <div className="hidden" />
-        <div className="relative flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-end">
-          <div className="hidden">
-            <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#0070B8]">
-              <Sparkles className="h-3.5 w-3.5 text-[#0EA5E9]" />
-              CRM / Clients Management
+    <div className="space-y-5 bg-[#f7f9fc] p-3 lg:p-5">
+      <section className="relative overflow-hidden rounded-2xl bg-[#061526] px-4 py-3.5 text-white shadow-[0_18px_40px_rgba(6,21,38,0.14)] sm:px-5">
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_0%,rgba(14,165,233,0.34),transparent_34%),radial-gradient(circle_at_92%_100%,rgba(230,0,70,0.24),transparent_35%)]" />
+        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
+          <div className="min-w-0 shrink-0">
+            <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-sky-200">
+              <Sparkles className="h-3 w-3 text-sky-300" /> Clients / Leads
             </div>
-            <h1 className="mt-0.5 text-xl font-black tracking-tight text-slate-950">Clients Command Center</h1>
-            <p className="hidden">
-              Manage active accounts, agreements, invoices, quotations, and client health from one polished workspace.
-            </p>
-            <p className="mt-0.5 text-[10px] font-medium text-slate-400">
-              {lastRefreshed ? `Last refreshed ${lastRefreshed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Waiting for first refresh"}
+            <p className="mt-1 text-xs font-medium text-slate-300">
+              {lastRefreshed ? `Updated ${lastRefreshed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Manage your client relationships"}
             </p>
           </div>
-          <div className="flex w-full flex-nowrap items-center gap-2">
-            <div className="flex min-w-[320px] flex-1 items-center gap-2">
-              <div className="relative min-w-[220px] flex-1">
-                <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-                <input
-                  value={searchInput}
-                  onChange={(event) => setSearchInput(event.target.value)}
-                  placeholder="Search company, contact, phone or email"
-                  aria-label="Global client search"
-                  className="h-9 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-4 text-xs text-slate-800 outline-none placeholder:text-slate-400 focus:border-sky-300 focus:ring-2 focus:ring-sky-100"
-                />
-              </div>
-              <DateRangePicker from={fromDate} to={toDate} onChange={(from, to) => { setFromDate(from); setToDate(to); setPage(1); }} />
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              <button onClick={fetchClients} title="Refresh client data" className="inline-flex h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 transition hover:border-sky-200 hover:text-[#0070B8]">
-                <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-              </button>
-              <button type="button" className="hidden h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 lg:inline-flex">
-                <Upload className="h-3.5 w-3.5" /> {importing ? "Importing…" : "Import Clients"}
-              </button>
-              <button type="button" className="hidden h-9 items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600 lg:inline-flex">
-                <Download className="h-3.5 w-3.5" /> Export
-              </button>
-              <Link href="/crm/clients/new" className="inline-flex h-9 items-center gap-2 rounded-xl bg-[#2563EB] px-4 text-xs font-black text-white shadow-md shadow-blue-200 transition hover:bg-blue-700">
-                <Plus className="h-3.5 w-3.5" /> Add New Client
-              </Link>
-            </div>
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder="Search company, contact, phone or email"
+              aria-label="Search clients"
+              className="h-10 w-full rounded-xl border border-white/15 bg-white/10 pl-10 pr-4 text-xs text-white outline-none placeholder:text-slate-400 focus:border-sky-300 focus:bg-white/15 focus:ring-2 focus:ring-sky-300/30"
+            />
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2">
+            <button onClick={fetchClients} title="Refresh client data" className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3.5 text-xs font-bold text-white transition hover:bg-white/20">
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+            <Link href="/crm/clients/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#E60046] px-4 text-xs font-black text-white shadow-lg shadow-rose-950/20 transition hover:-translate-y-0.5 hover:bg-rose-500">
+              <Plus className="h-3.5 w-3.5" /> Add New Client
+            </Link>
           </div>
         </div>
       </section>
 
       {/* ── Stats ── */}
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 2xl:grid-cols-6">
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
-          { label: "Total Clients", value: total.toLocaleString("en-IN"), icon: Users, tone: "bg-blue-50 text-blue-600", note: "All client records", action: () => { setStatusFilter(""); setPage(1); } },
+          { label: "Total Clients", value: total.toLocaleString("en-IN"), icon: Users, tone: "bg-blue-50 text-blue-600", note: "Converted client records", action: () => { setStatusFilter(""); setPage(1); } },
           { label: "Active Clients", value: statusCounts.Active.toLocaleString("en-IN"), icon: UserCheck, tone: "bg-emerald-50 text-emerald-600", note: "Currently active", action: () => { setStatusFilter("Active"); setPage(1); } },
-          { label: "Total Revenue", value: financialLoading ? "—" : formatFinancialValue(portfolioRevenue, "currency"), icon: BadgeIndianRupee, tone: "bg-green-50 text-green-700", note: "Total invoiced value" },
-          { label: "Outstanding", value: financialLoading ? "—" : formatFinancialValue(totalOutstanding, "currency"), icon: AlertCircle, tone: "bg-rose-50 text-rose-600", note: "Pending collection" },
           { label: "Follow-ups Due", value: "—", icon: CalendarDays, tone: "bg-violet-50 text-violet-600", note: "Awaiting activity API" },
           { label: "Conversion Rate", value: `${conversionRate}%`, icon: TrendingUp, tone: "bg-indigo-50 text-indigo-600", note: "Active / total clients" },
         ].map(({ label, value, icon: Icon, tone, note, action }) => (
           <button key={label} type="button" onClick={action} disabled={!action} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition enabled:hover:-translate-y-0.5 enabled:hover:border-blue-200 enabled:hover:shadow-md">
             <div className="flex items-center gap-3">
               <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}><Icon className="h-5 w-5" /></span>
-              <div className="min-w-0"><p className="text-[10px] font-bold text-slate-500">{label}</p><p className="mt-0.5 truncate text-lg font-black text-slate-950">{countsLoading && label.includes("Clients") ? "—" : value}</p></div>
+              <div className="min-w-0"><p className="text-[10px] font-bold text-slate-500">{label}</p><p className="mt-0.5 truncate text-lg font-black text-slate-950">{countsLoading && label === "Active Clients" ? "—" : value}</p></div>
             </div>
             <p className="mt-2 text-[10px] font-semibold text-emerald-600">↗ {note}</p>
           </button>
@@ -649,9 +630,9 @@ function ClientsPageInner() {
       </details>
 
       {/* ── Filters ── */}
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid items-start gap-5">
       <div className="min-w-0 space-y-4">
-      <div className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
+      <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_14px_35px_rgba(15,23,42,0.05)]">
         <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
           <div>
             <h2 className="text-sm font-black text-slate-950">Find Your Clients</h2>
@@ -663,17 +644,8 @@ function ClientsPageInner() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2 overflow-x-auto pb-1">
-        <div className="relative min-w-[200px]">
-          <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-          <input
-            type="text"
-            value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
-            placeholder="Company, contact, phone or email"
-            className="h-11 w-full rounded-2xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none transition placeholder:text-slate-400 focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100"
-          />
-        </div>
+        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        <DateRangePicker from={fromDate} to={toDate} onChange={(from, to) => { setFromDate(from); setToDate(to); setPage(1); }} />
 
         <div className="relative">
           <Filter className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
@@ -731,11 +703,11 @@ function ClientsPageInner() {
 
         <button
           onClick={fetchClients}
-          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-700 transition hover:border-sky-200 hover:bg-sky-50 hover:text-[#0070B8]"
+          className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl bg-[#0070B8] px-4 text-sm font-bold text-white shadow-md shadow-sky-100 transition hover:-translate-y-0.5 hover:bg-[#075f99]"
         >
           <Filter className="h-3.5 w-3.5" /> Apply Filters
         </button>
-        <button onClick={clearFilters} disabled={activeFilterCount === 0} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-white px-4 text-sm font-bold text-slate-600 hover:bg-slate-50 disabled:opacity-40">
+        <button onClick={clearFilters} disabled={activeFilterCount === 0} className="inline-flex h-11 items-center justify-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 px-4 text-sm font-bold text-slate-600 transition hover:bg-white disabled:opacity-40">
           <X className="h-3.5 w-3.5" /> Clear All
         </button>
       </div>
@@ -755,7 +727,7 @@ function ClientsPageInner() {
       </div>
 
       {/* ── Table ── */}
-      <div className="overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
+      <div className="scroll-mt-4 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h2 className="text-base font-black text-slate-950">Client Directory</h2>
@@ -777,8 +749,8 @@ function ClientsPageInner() {
             </button>
           </div>
         ) : (
-          <div className="max-h-[calc(100vh-410px)] min-h-[280px] overflow-auto">
-            <table className="w-full min-w-[920px] text-sm">
+          <div className="max-h-[520px] min-h-[360px] overflow-auto">
+            <table className="w-full min-w-[900px] text-sm">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 shadow-sm">
                 <tr className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
                   <th className="px-5 py-3 text-left font-black whitespace-nowrap">Client</th>
@@ -846,15 +818,13 @@ function ClientsPageInner() {
                       <td className="px-5 py-4 text-slate-600 whitespace-nowrap">
                         <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-bold text-slate-600">{client.industry || "—"}</span>
                       </td>
-                      <td className="px-5 py-4">
-                        <HealthBadge client={client} />
-                      </td>
+                      <td className="px-5 py-4"><HealthBadge client={client} /></td>
                       <td className="px-5 py-4 text-right font-black text-slate-800 whitespace-nowrap">
                         {formatFinancialValue(clientFinancials[client.id ?? ""]?.revenue ?? 0, "currency")}
                       </td>
                       <td className="px-5 py-4 text-right font-bold whitespace-nowrap">
                         <span className={(clientFinancials[client.id ?? ""]?.outstanding ?? 0) > 0 ? "text-rose-600" : "text-slate-500"}>
-                          {financialLoading ? "—" : new Intl.NumberFormat("en-IN", { style: "currency", currency: ERP_CURRENCY, maximumFractionDigits: 0 }).format(clientFinancials[client.id ?? ""]?.outstanding ?? 0)}
+                          {financialLoading ? "—" : formatFinancialValue(clientFinancials[client.id ?? ""]?.outstanding ?? 0, "currency")}
                         </span>
                       </td>
                       <td className="px-5 py-4 text-center">
@@ -893,7 +863,7 @@ function ClientsPageInner() {
       </div>
 
       </div>
-      <aside className="space-y-4 xl:sticky xl:top-4">
+      <aside className="mt-5 grid gap-4 lg:grid-cols-3">
         <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex items-center justify-between"><h2 className="text-sm font-black text-slate-900">Revenue Overview</h2><span className="rounded-lg border border-slate-200 px-2 py-1 text-[9px] font-bold text-slate-500">This Month</span></div>
           <p className="mt-5 text-[10px] font-bold uppercase tracking-wide text-slate-400">Total invoiced</p><p className="mt-1 text-xl font-black text-slate-950">{financialLoading ? "—" : formatFinancialValue(portfolioRevenue, "currency")}</p>

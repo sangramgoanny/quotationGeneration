@@ -109,7 +109,7 @@ function clientToSpec(c: Partial<Client> & { leadStage?: string }): Record<strin
     googleBusiness:       str(c.googleBusiness),
 
     // ── Section 7: Account Info ───────────────────────────────────────────
-    accountManagerId:     c.accountManager || undefined,
+    accountManagerId:     "accountManager" in c ? (c.accountManager || null) : undefined,
     leadSource:           LEAD_SOURCE_MAP[str(c.leadSource)]   || undefined,
     paymentTerms:         PAYMENT_TERMS_MAP[str(c.paymentTerms)] || undefined,
     creditLimit:          num(c.creditLimit),
@@ -286,14 +286,6 @@ export const clientsApi = {
     const raw = await request<{ success: boolean; data: Client }>(`/api/clients/${id}`, {
       method: "PATCH",
       body: JSON.stringify(clientToSpec(data)),
-    });
-    return raw.data;
-  },
-
-  async convertLeadToClient(id: string): Promise<Client> {
-    const raw = await request<{ success: boolean; data: Client }>(`/api/clients/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({ status: "ACTIVE", leadStage: "WON" }),
     });
     return raw.data;
   },

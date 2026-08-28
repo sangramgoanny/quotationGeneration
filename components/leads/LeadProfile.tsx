@@ -7,7 +7,7 @@ import {
   AlertCircle, Building2, Calendar, CheckCircle, Edit,
   Globe, Mail, MapPin, Phone, Tag, User, Users,
 } from "lucide-react";
-import { clientsApi } from "@/lib/api/clients";
+import { leadsApi } from "@/lib/api/leads";
 import type { Client } from "@/types/client";
 import LeadQuotationSection from "@/components/leads/LeadQuotationSection";
 
@@ -70,7 +70,7 @@ export default function LeadProfile({ leadId }: Props) {
 
   useEffect(() => {
     let isMounted = true;
-    clientsApi
+    leadsApi
       .get(leadId)
       .then((data) => {
         if (isMounted) setLead(data);
@@ -106,7 +106,7 @@ export default function LeadProfile({ leadId }: Props) {
     setConverting(true);
     setError(null);
     try {
-      const converted = await clientsApi.update(leadId, { ...lead, status: "Active" });
+      const converted = await leadsApi.convert(leadId);
       router.push(`/crm/clients/${converted.id ?? leadId}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to convert lead");

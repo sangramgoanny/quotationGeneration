@@ -13,13 +13,25 @@ import {
 } from "lucide-react";
 import {
   clientsApi,
-  type InvoiceRecord,
   type ReceiptRecord,
   type ProjectRecord,
 } from "@/lib/api/clients";
 import { activityApi, type ActivityLog } from "@/lib/api/activity";
 import { quotationsApi, type Quotation, type QuotationListItem, type QuotationStatus } from "@/lib/api/quotations";
 import { agreementsApi, type AgreementListItem, type AgreementStatus } from "@/lib/api/agreements";
+import { invoicesApi } from "@/lib/api/invoices";
+import { receiptsApi, type CreateReceiptPayload } from "@/lib/api/receipts";
+import type { Invoice, InvoiceStatus } from "@/types/invoice";
+import {
+  STATUS_OPTIONS as INVOICE_STATUS_OPTIONS,
+  STATUS_STYLE as INVOICE_STATUS_STYLE,
+  money as invoiceMoney,
+  statusLabel as invoiceStatusLabel,
+  downloadInvoice,
+  EditInvoiceModal,
+  AddReceiptModal,
+  InvoiceModal,
+} from "@/components/invoices/InvoiceShared";
 import type { Client, ClientDocument, ContactPerson } from "@/types/client";
 
 // ─── Props ────────────────────────────────────────────────────────────────────
@@ -106,11 +118,6 @@ function formatFileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1048576).toFixed(1)} MB`;
-}
-
-function moneyValue(value?: string | number) {
-  const n = Number(String(value ?? "").replace(/,/g, ""));
-  return Number.isFinite(n) ? n : 0;
 }
 
 function summarizeServices(client: Client) {
@@ -491,6 +498,208 @@ function ClientAgreementsTab({ clientId, clientName }: { clientId: string; clien
   );
 }
 
+// ─── Invoices Tab ─────────────────────────────────────────────────────────────
+
+function ClientInvoicesTab({ clientId }: { clientId: string }) {
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Invoice | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [editing, setEditing] = useState<Invoice | null>(null);
+  const [receipting, setReceipting] = useState<Invoice | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [statusUpdatingId, setStatusUpdatingId] = useState("");
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await invoicesApi.list({ clientId, limit: 100 });
+      setInvoices(result.invoices ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load invoices");
+    } finally {
+      setLoading(false);
+    }
+  }, [clientId]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const openInvoice = async (invoice: Invoice) => {
+    setSelected(invoice);
+    setDetailLoading(true);
+    try {
+      setSelected(await invoicesApi.get(invoice.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to load invoice details");
+      setSelected(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  };
+
+  const download = async (invoice: Invoice) => {
+    try {
+      await downloadInvoice(await invoicesApi.get(invoice.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to download invoice");
+    }
+  };
+
+  const updateStatus = async (invoice: Invoice, nextStatus: InvoiceStatus) => {
+    setStatusUpdatingId(invoice.id);
+    setError(null);
+    try {
+      await invoicesApi.update(invoice.id, { status: nextStatus });
+      setInvoices((current) => current.map((item) => (item.id === invoice.id ? { ...item, status: nextStatus } : item)));
+      if (selected?.id === invoice.id) setSelected((current) => (current ? { ...current, status: nextStatus } : current));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to update invoice status");
+    } finally {
+      setStatusUpdatingId("");
+    }
+  };
+
+  const saveEdit = async (data: { date: string; dueDate: string | null; amount: number; paid: number; status: InvoiceStatus; notes?: string }) => {
+    if (!editing) return;
+    if (data.amount <= 0) { setError("Invoice amount must be greater than zero"); return; }
+    if (data.paid < 0 || data.paid > data.amount) { setError("Amount paid must be between zero and the invoice amount"); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await invoicesApi.update(editing.id, data);
+      setEditing(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to update invoice");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveReceipt = async (payload: CreateReceiptPayload) => {
+    if (!receipting) return;
+    if (payload.amount > Number(receipting.due)) {
+      setError(`Receipt amount cannot exceed the current balance of ${invoiceMoney(receipting.due)}`);
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await receiptsApi.create(payload);
+      setReceipting(null);
+      await load();
+      if (selected?.id === receipting.id) setSelected(await invoicesApi.get(receipting.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unable to create receipt");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <LoadingSpinner />;
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <p className="text-xs text-slate-500">{invoices.length} invoice{invoices.length !== 1 ? "s" : ""} found</p>
+        <Link
+          href={`/invoice/new?clientId=${clientId}`}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
+        >
+          <Plus className="w-3.5 h-3.5" /> New Invoice
+        </Link>
+      </div>
+
+      {error && <div className="rounded-lg bg-red-50 p-3 text-xs font-medium text-red-700">{error}</div>}
+
+      {invoices.length === 0 ? (
+        <EmptyState
+          message="No invoices found"
+          action={
+            <SmallActionLink href={`/invoice/new?clientId=${clientId}`}>
+              <Plus className="w-3.5 h-3.5" /> New Invoice
+            </SmallActionLink>
+          }
+        />
+      ) : (
+        <div className="border border-slate-200 rounded-xl overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200">
+              <tr className="text-[11px] text-slate-500 uppercase tracking-wider">
+                <th className="px-4 py-3 text-left font-semibold">Invoice No.</th>
+                <th className="px-4 py-3 text-left font-semibold hidden sm:table-cell">Date</th>
+                <th className="px-4 py-3 text-left font-semibold hidden sm:table-cell">Due Date</th>
+                <th className="px-4 py-3 text-right font-semibold">Amount</th>
+                <th className="px-4 py-3 text-right font-semibold">Paid</th>
+                <th className="px-4 py-3 text-right font-semibold">Due</th>
+                <th className="px-4 py-3 text-center font-semibold">Status</th>
+                <th className="px-4 py-3 text-center font-semibold">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {invoices.map((inv) => (
+                <tr key={inv.id} className="hover:bg-slate-50 transition-colors">
+                  <td className="px-4 py-3 font-mono text-xs font-semibold text-indigo-600 whitespace-nowrap">{inv.invoiceNumber || "—"}</td>
+                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap hidden sm:table-cell">{formatDate(inv.date)}</td>
+                  <td className="px-4 py-3 text-slate-500 whitespace-nowrap hidden sm:table-cell">{formatDate(inv.dueDate ?? undefined)}</td>
+                  <td className="px-4 py-3 text-right text-slate-800 whitespace-nowrap">{invoiceMoney(inv.amount)}</td>
+                  <td className="px-4 py-3 text-right text-green-600 whitespace-nowrap">{invoiceMoney(inv.paid)}</td>
+                  <td className="px-4 py-3 text-right text-red-600 font-medium whitespace-nowrap">{invoiceMoney(inv.due)}</td>
+                  <td className="px-4 py-3 text-center">
+                    <select
+                      value={inv.status}
+                      disabled={statusUpdatingId === inv.id}
+                      onChange={(event) => void updateStatus(inv, event.target.value as InvoiceStatus)}
+                      className={`rounded-full border-0 px-2.5 py-1 text-[10px] font-black outline-none disabled:opacity-60 ${INVOICE_STATUS_STYLE[inv.status]}`}
+                      aria-label={`Change status for ${inv.invoiceNumber}`}
+                    >
+                      {INVOICE_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{invoiceStatusLabel(option)}</option>)}
+                    </select>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      <button type="button" onClick={() => void openInvoice(inv)} title="View invoice" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors">
+                        <Eye className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => setEditing(inv)} title="Edit invoice" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors">
+                        <Edit className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setReceipting(inv)}
+                        disabled={Number(inv.due) <= 0}
+                        title={Number(inv.due) <= 0 ? "Invoice is fully paid" : "Add receipt"}
+                        className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors disabled:cursor-not-allowed disabled:opacity-30"
+                      >
+                        <Receipt className="w-3.5 h-3.5" />
+                      </button>
+                      <button type="button" onClick={() => void download(inv)} title="Download invoice" className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors">
+                        <Download className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {(selected || detailLoading) && (
+        <InvoiceModal invoice={selected} loading={detailLoading} onClose={() => setSelected(null)} />
+      )}
+      {editing && (
+        <EditInvoiceModal invoice={editing} saving={saving} onClose={() => setEditing(null)} onSave={saveEdit} />
+      )}
+      {receipting && (
+        <AddReceiptModal invoice={receipting} saving={saving} onClose={() => setReceipting(null)} onSave={saveReceipt} />
+      )}
+    </div>
+  );
+}
+
 // ─── ClientProfile ────────────────────────────────────────────────────────────
 
 export default function ClientProfile({ clientId, initialTab }: Props) {
@@ -504,7 +713,6 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
   // Lazy tab data
   const [contacts,   setContacts]   = useState<ContactPerson[] | null>(null);
   const [documents,  setDocuments]  = useState<ClientDocument[] | null>(null);
-  const [invoices,   setInvoices]   = useState<InvoiceRecord[] | null>(null);
   const [receipts,   setReceipts]   = useState<ReceiptRecord[] | null>(null);
   const [projects,   setProjects]   = useState<ProjectRecord[] | null>(null);
   const [activity,   setActivity]   = useState<ActivityLog[] | null>(null);
@@ -514,6 +722,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
   const [activityError, setActivityError] = useState<string | null>(null);
   const [tabLoading, setTabLoading] = useState(false);
   const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [outstandingSummary, setOutstandingSummary] = useState<{ value: number; loading: boolean }>({ value: 0, loading: true });
 
   // Load client
   useEffect(() => {
@@ -528,6 +737,33 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
       .finally(() => setLoading(false));
   }, [clientId]);
 
+  // Compute real outstanding balance from invoices (unpaid balance on SENT/PARTIALLY_PAID/OVERDUE invoices),
+  // rather than relying on the client's static outstandingBalance field which can go stale.
+  useEffect(() => {
+    let active = true;
+    setOutstandingSummary((current) => ({ ...current, loading: true }));
+    (async () => {
+      try {
+        const first = await invoicesApi.list({ clientId, limit: 100, page: 1 });
+        const remaining = first.pagination.pages > 1
+          ? await Promise.all(
+              Array.from({ length: first.pagination.pages - 1 }, (_, index) => invoicesApi.list({ clientId, limit: 100, page: index + 2 }))
+            )
+          : [];
+        const allInvoices = [first, ...remaining].flatMap((result) => result.invoices ?? []);
+        const outstandingStatuses = new Set(["SENT", "PARTIALLY_PAID", "OVERDUE"]);
+        const value = allInvoices.reduce((sum, invoice) => {
+          if (!outstandingStatuses.has(invoice.status)) return sum;
+          return sum + Math.max((Number(invoice.amount) || 0) - (Number(invoice.paid) || 0), 0);
+        }, 0);
+        if (active) setOutstandingSummary({ value, loading: false });
+      } catch {
+        if (active) setOutstandingSummary({ value: 0, loading: false });
+      }
+    })();
+    return () => { active = false; };
+  }, [clientId]);
+
   // Lazy tab loader
   const loadTab = useCallback(
     async (tab: TabId) => {
@@ -539,7 +775,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
         contacts:   contacts   !== null,
         documents:  documents  !== null,
         quotations: true, // ClientQuotationsTab manages its own fetch
-        invoices:   invoices   !== null,
+        invoices:   true, // ClientInvoicesTab manages its own fetch
         receipts:   receipts   !== null,
         agreements: true, // ClientAgreementsTab manages its own fetch
         projects:   projects   !== null,
@@ -555,9 +791,6 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
             break;
           case "documents":
             setDocuments(await clientsApi.getDocuments(clientId));
-            break;
-          case "invoices":
-            setInvoices(await clientsApi.getInvoices(clientId));
             break;
           case "receipts":
             setReceipts(await clientsApi.getReceipts(clientId));
@@ -577,7 +810,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
         setTabLoading(false);
       }
     },
-    [clientId, client, contacts, documents, invoices, receipts, projects, activity]
+    [clientId, client, contacts, documents, receipts, projects, activity]
   );
 
   useEffect(() => {
@@ -677,7 +910,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
   if (!client) return null;
 
   const initials = client.companyName?.slice(0, 2).toUpperCase() ?? "??";
-  const outstanding = moneyValue(client.outstandingBalance);
+  const outstanding = outstandingSummary.value;
   const serviceCount = summarizeServices(client);
   const profileDocs = documents ?? client.documents ?? [];
 
@@ -779,7 +1012,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
           <SummaryTile
             icon={IndianRupee}
             label="Outstanding"
-            value={formatCurrency(outstanding)}
+            value={outstandingSummary.loading ? "…" : formatCurrency(outstanding)}
             tone={outstanding > 0 ? "red" : "green"}
             hint={client.paymentTerms || "Payment terms pending"}
             onClick={() => loadTab("invoices")}
@@ -1137,62 +1370,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
               )}
 
               {/* Tab 6 - Invoices */}
-              {activeTab === "invoices" && (
-                <div className="space-y-3">
-                  <div className="flex justify-end">
-                    <Link
-                      href={`/invoice/new?clientId=${clientId}`}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> New Invoice
-                    </Link>
-                  </div>
-                  {!invoices || invoices.length === 0 ? (
-                    <EmptyState
-                      message="No invoices found"
-                      action={
-                        <SmallActionLink href={`/invoice/new?clientId=${clientId}`}>
-                          <Plus className="w-3.5 h-3.5" /> New Invoice
-                        </SmallActionLink>
-                      }
-                    />
-                  ) : (
-                    <div className="border border-slate-200 rounded-lg overflow-x-auto">
-                      <table className="w-full min-w-[760px] text-sm">
-                        <thead className="bg-slate-50">
-                          <tr className="text-xs text-slate-500 uppercase tracking-wider">
-                            <th className="px-4 py-3 text-left">Invoice No.</th>
-                            <th className="px-4 py-3 text-left">Date</th>
-                            <th className="px-4 py-3 text-right">Amount</th>
-                            <th className="px-4 py-3 text-right">Paid</th>
-                            <th className="px-4 py-3 text-right">Due</th>
-                            <th className="px-4 py-3 text-center">Status</th>
-                            <th className="px-4 py-3 text-center">Actions</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {invoices.map((inv) => (
-                            <tr key={inv.id} className="hover:bg-slate-50">
-                              <td className="px-4 py-3 font-medium text-indigo-600">{inv.invoiceNumber || "—"}</td>
-                              <td className="px-4 py-3 text-slate-600">{formatDate(inv.date)}</td>
-                              <td className="px-4 py-3 text-right text-slate-800">{formatCurrency(inv.amount)}</td>
-                              <td className="px-4 py-3 text-right text-green-600">{formatCurrency(inv.paid)}</td>
-                              <td className="px-4 py-3 text-right text-red-600 font-medium">{formatCurrency(inv.due)}</td>
-                              <td className="px-4 py-3 text-center"><StatusBadge status={inv.status} /></td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center justify-center gap-2">
-                                  <Link href={`/invoice?invoiceId=${encodeURIComponent(inv.id)}`} title="View invoice" className="p-1 text-slate-500 hover:text-indigo-600"><Eye className="w-4 h-4" /></Link>
-                                  <button className="p-1 text-slate-500 hover:text-indigo-600"><Download className="w-4 h-4" /></button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-              )}
+              {activeTab === "invoices" && <ClientInvoicesTab clientId={clientId} />}
 
               {/* Tab 7 - Receipts */}
               {activeTab === "receipts" && (

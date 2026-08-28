@@ -15,7 +15,7 @@ import {
   type QuotationStatus,
 } from "@/lib/api/quotations";
 import { type TimelinePhase, type TimelineUnit } from "@/lib/quotationStore";
-import { clientsApi } from "@/lib/api/clients";
+import { leadsApi } from "@/lib/api/leads";
 
 const UNIT_TO_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
 const UNIT_TO_API: Record<TimelineUnit, "DAYS" | "WEEKS" | "MONTHS"> = { Days: "DAYS", Weeks: "WEEKS", Months: "MONTHS" };
@@ -1309,7 +1309,7 @@ export default function LeadQuotationSection({
     try {
       await quotationsApi.updateStatus(id, status);
       if (status === "ACCEPTED") {
-        await clientsApi.convertLeadToClient(leadId);
+        await leadsApi.convert(leadId);
       }
       setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status } : q)));
       setViewTarget((prev) => (prev && prev.id === id ? { ...prev, status } : prev));

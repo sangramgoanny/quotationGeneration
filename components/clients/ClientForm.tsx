@@ -482,6 +482,7 @@ export default function ClientForm({ initialData, onSubmit, isLoading, mode, onC
       fileType: file.type,
       fileSize: file.size,
       s3Url: URL.createObjectURL(file),
+      downloadUrl: URL.createObjectURL(file),
       uploadedBy: "Current User",
       uploadedAt: new Date().toISOString(),
     };

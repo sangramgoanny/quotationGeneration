@@ -6,9 +6,9 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { clearToken } from "@/utils/token";
 import { usePermissions } from "@/lib/rbac/usePermissions";
-import { clientsApi } from "@/lib/api/clients";
 import { leadsApi } from "@/lib/api/leads";
 import { quotationsApi } from "@/lib/api/quotations";
+import { remindersApi } from "@/lib/api/reminders";
 import {
   LayoutDashboard,
   Users,
@@ -53,10 +53,10 @@ const SECTIONS = [
           { label: "Leads", href: "/crm/leads", icon: Target, tone: "blue", moduleId: "leads", countKey: "leads" },
           // { label: "Leads 2", href: "/crm/leads-2", icon: Target, tone: "red", badge: "New" },
           { label: "Activities", href: "/crm/activities", icon: Activity, tone: "violet", moduleId: "activities" },
-          { label: "Follow Ups", href: "/crm/follow-ups", icon: Clock3, tone: "amber", moduleId: "followups" },
+          { label: "Follow Ups", href: "/crm/follow-ups", icon: Clock3, tone: "amber", moduleId: "followUps", countKey: "followUps" },
         ],
       },
-      { label: "Clients", href: "/crm/clients", icon: UserCircle, tone: "cyan", moduleId: "clients", countKey: "clients" },
+      { label: "Clients", href: "/crm/clients", icon: UserCircle, tone: "cyan", moduleId: "clients" },
       {
         label: "Sales",
         icon: FileText,
@@ -74,7 +74,7 @@ const SECTIONS = [
         tone: "amber",
         children: [
           { label: "Projects", href: "/projects", icon: FolderOpen, tone: "amber", moduleId: "projects" },
-          { label: "Tasks", href: "/projects/tasks", icon: CheckSquare, tone: "blue", moduleId: "project_tasks" },
+          { label: "Tasks", href: "/projects/tasks", icon: CheckSquare, tone: "blue", moduleId: "projectTasks" },
         ],
       },
       {
@@ -154,9 +154,10 @@ export default function Sidebar() {
     const loadCounts = async () => {
       const next = {};
       const requests = [];
-      if (canView("leads")) requests.push(["leads", leadsApi.list({ limit: 1 })]);
-      if (canView("clients")) requests.push(["clients", clientsApi.list({ limit: 1 })]);
+      if (canView("leads")) requests.push(["leads", leadsApi.list({ leadStage: "New", limit: 1 })]);
       if (canView("quotations")) requests.push(["quotations", quotationsApi.list({ limit: 1 })]);
+      // Badge shows overdue follow-ups — the urgent, needs-action count — not the total open count.
+      if (canView("followUps")) requests.push(["followUps", remindersApi.summary().then((s) => ({ total: s.overdue }))]);
       const results = await Promise.allSettled(requests.map(([, request]) => request));
       results.forEach((result, index) => {
         if (result.status !== "fulfilled") return;

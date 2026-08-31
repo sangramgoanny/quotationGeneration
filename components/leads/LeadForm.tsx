@@ -456,6 +456,7 @@ export default function LeadForm({ initialData, isLoading, onSubmit, onCancel }:
       fileType: file.type,
       fileSize: file.size,
       s3Url: URL.createObjectURL(file),
+      downloadUrl: URL.createObjectURL(file),
       uploadedBy: "Current User",
       uploadedAt: new Date().toISOString(),
     };

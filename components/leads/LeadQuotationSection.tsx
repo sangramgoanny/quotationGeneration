@@ -6,6 +6,7 @@ import { jsPDF } from "jspdf";
 import {
   Download, Eye, FileText, Plus, X, Trash2, ChevronDown, ChevronUp,
   User, MapPin, Hash, Calendar, IndianRupee, Loader2, Pencil, ReceiptText,
+  Mail, Send, CheckCircle2, AlertCircle,
 } from "lucide-react";
 import {
   quotationsApi,
@@ -16,6 +17,7 @@ import {
 } from "@/lib/api/quotations";
 import { type TimelinePhase, type TimelineUnit } from "@/lib/quotationStore";
 import { leadsApi } from "@/lib/api/leads";
+import { activityApi } from "@/lib/api/activity";
 
 const UNIT_TO_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
 const UNIT_TO_API: Record<TimelineUnit, "DAYS" | "WEEKS" | "MONTHS"> = { Days: "DAYS", Weeks: "WEEKS", Months: "MONTHS" };
@@ -84,6 +86,9 @@ interface SavedQuotation {
   createdAt: string;
   status: QuotationStatus;
   contractData?: QuotationContract;
+  clientEmail?: string;
+  lastEmail?: { to: string; sentAt: string } | null;
+  emailHistory?: { to: string; sentAt: string }[];
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -133,6 +138,9 @@ function mapQuotationToSaved(q: Quotation): SavedQuotation {
     createdAt: q.createdAt,
     status: q.status,
     contractData: mapQuotationToContract(q),
+    clientEmail: q.client?.primaryEmail,
+    lastEmail: q.lastEmail,
+    emailHistory: q.emailHistory,
   };
 }
 
@@ -194,14 +202,15 @@ function SectionTitle({ n, children }: { n: number; children: React.ReactNode })
   );
 }
 
-async function downloadQuotationPdf(contract: QuotationContract, quotationNumber: string) {
-  const doc = new jsPDF("p", "mm", "a4");
+async function buildQuotationContractPdf(contract: QuotationContract, quotationNumber: string) {
+  const doc = new jsPDF({ orientation: "p", unit: "mm", format: "a4", compress: true, putOnlyUsedFonts: true });
 
   const img = new Image();
   img.src = "/letterhead.jpg";
   await new Promise<void>((res) => { img.onload = () => res(); img.onerror = () => res(); });
   const hasLH = img.complete && img.naturalWidth > 0;
-  const addBg = () => { if (hasLH) doc.addImage(img, "JPEG", 0, 0, 210, 297); };
+  // Reusing a stable alias stores the letterhead only once in multi-page PDFs.
+  const addBg = () => { if (hasLH) doc.addImage(img, "JPEG", 0, 0, 210, 297, "lead-quotation-letterhead", "FAST"); };
 
   const stamp = new Image();
   stamp.src = "/goanny_stamp.png";
@@ -523,7 +532,7 @@ async function downloadQuotationPdf(contract: QuotationContract, quotationNumber
   const stampDrawX = R - stampMmW;
   const stampCentreX = R - stampMmW / 2;
   if (hasStamp) {
-    doc.addImage(stamp, "PNG", stampDrawX, y, stampMmW, stampMmH);
+    doc.addImage(stamp, "PNG", stampDrawX, y, stampMmW, stampMmH, "lead-quotation-stamp", "FAST");
   } else {
     sd(C.border); doc.setLineWidth(0.3);
     doc.line(stampDrawX, y + stampMmH - 4, R, y + stampMmH - 4);
@@ -542,7 +551,140 @@ async function downloadQuotationPdf(contract: QuotationContract, quotationNumber
     doc.text(`Page ${i} of ${pages}`, 105, 288, { align: "center" });
   }
 
+  return doc;
+}
+
+async function downloadQuotationPdf(contract: QuotationContract, quotationNumber: string) {
+  const doc = await buildQuotationContractPdf(contract, quotationNumber);
   doc.save(`${quotationNumber.replace(/\//g, "-")}.pdf`);
+}
+
+async function getQuotationContractPdfAttachment(contract: QuotationContract, quotationNumber: string): Promise<{ filename: string; base64: string }> {
+  const doc = await buildQuotationContractPdf(contract, quotationNumber);
+  const dataUri = doc.output("datauristring");
+  return { filename: `${quotationNumber.replace(/\//g, "-")}.pdf`, base64: dataUri.slice(dataUri.indexOf(",") + 1) };
+}
+
+const longDate = (value?: string) =>
+  value ? new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : "Not applicable";
+const dateTime = (value: string) =>
+  new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+function SendLeadQuotationEmailModal({
+  quotation,
+  leadId,
+  onClose,
+  onSent,
+}: {
+  quotation: SavedQuotation & { contractData: QuotationContract };
+  leadId: string;
+  onClose: () => void;
+  onSent: (status: QuotationStatus) => void;
+}) {
+  const [to, setTo] = useState(quotation.clientEmail ?? "");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState(`Quotation ${quotation.quotationNumber} | Goanny Ai Tech`);
+  const [message, setMessage] = useState(
+    `Dear Sir/Madam,\n\nGreetings from Goanny AI Tech.\n\nWith regard to the attached quotation, please find our proposal for the requested services.\n\nQuotation Number: ${quotation.quotationNumber}\nQuotation Date: ${longDate(quotation.date)}\nTotal Amount: ₹${quotation.totalAmount}\n\nPlease review the attached quotation. If you have any questions or require further clarification, please feel free to contact us.\n\nWe look forward to working with you.\n\nRegards,\nAccounts Team\nGoanny AI Tech\naccounts@goannyaitech.com\nwww.goannyaitech.com`,
+  );
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    activityApi.create(leadId, "Email Started", `Opened send-email form for Quotation ${quotation.quotationNumber}`).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleClose = () => {
+    if (!sent) {
+      activityApi.create(leadId, "Email Closed", `Closed send-email form for Quotation ${quotation.quotationNumber} without sending`).catch(() => {});
+    }
+    onClose();
+  };
+
+  const send = async () => {
+    if (!to.trim()) { setError("Recipient email is required"); return; }
+    setSending(true);
+    setError("");
+    try {
+      const { filename, base64 } = await getQuotationContractPdfAttachment(quotation.contractData, quotation.quotationNumber);
+      const result = await quotationsApi.sendEmail(quotation.id, {
+        to: to.trim(),
+        cc: cc.trim() ? cc.split(",").map((email) => email.trim()).filter(Boolean) : undefined,
+        subject,
+        message,
+        attachmentFilename: filename,
+        attachmentBase64: base64,
+      });
+      setSent(true);
+      onSent(result.status);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Unable to send email");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const field = "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={handleClose}>
+      <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div><p className="text-[10px] font-bold uppercase tracking-wide text-blue-600">Send by email</p><h2 className="mt-1 text-xl font-black text-slate-950">{quotation.quotationNumber}</h2></div>
+          <button onClick={handleClose} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+        </div>
+        {sent ? (
+          <div className="flex flex-col items-center gap-3 p-10 text-center">
+            <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+            <p className="font-bold text-slate-800">Email sent to {to}</p>
+            <button onClick={onClose} className="mt-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-black text-white">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-4 p-6">
+              {quotation.emailHistory?.length ? (
+                <div className="rounded-xl bg-blue-50 p-3 text-xs text-blue-700">
+                  <p className="flex items-center gap-2 font-bold">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    Sent {quotation.emailHistory.length} time{quotation.emailHistory.length > 1 ? "s" : ""}
+                  </p>
+                  <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto">
+                    {quotation.emailHistory.map((entry, index) => (
+                      <li key={index} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{entry.to}</span>
+                        <span className="shrink-0 text-blue-500">{dateTime(entry.sentAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {error ? <div className="flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div> : null}
+              <label className="text-xs font-bold text-slate-600">To
+                <input type="email" value={to} onChange={(event) => setTo(event.target.value)} className={field} placeholder="client@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Cc <span className="font-normal text-slate-400">(optional, comma separated)</span>
+                <input value={cc} onChange={(event) => setCc(event.target.value)} className={field} placeholder="sales@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Subject
+                <input value={subject} onChange={(event) => setSubject(event.target.value)} className={field} />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Message
+                <textarea value={message} onChange={(event) => setMessage(event.target.value)} className="mt-1 min-h-32 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <button onClick={handleClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancel</button>
+              <button disabled={sending} onClick={() => void send()} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-black text-white disabled:opacity-60">
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {quotation.lastEmail ? "Resend Email" : "Send Email"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ─── Default contract factory ─────────────────────────────────────────────────
@@ -1234,6 +1376,8 @@ export default function LeadQuotationSection({
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [detailLoadingId, setDetailLoadingId] = useState<string | null>(null);
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
+  const [emailingId, setEmailingId] = useState<string | null>(null);
+  const [emailingQuotation, setEmailingQuotation] = useState<(SavedQuotation & { contractData: QuotationContract }) | null>(null);
 
   const fetchQuotations = useCallback(async () => {
     setLoading(true);
@@ -1301,6 +1445,18 @@ export default function LeadQuotationSection({
       alert(e instanceof Error ? e.message : "Failed to load quotation for download");
     } finally {
       setDownloadingId(null);
+    }
+  };
+
+  const handleEmail = async (q: SavedQuotation) => {
+    setEmailingId(q.id);
+    try {
+      const full = await ensureContract(q);
+      if (full.contractData) setEmailingQuotation(full as SavedQuotation & { contractData: QuotationContract });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to load quotation for email");
+    } finally {
+      setEmailingId(null);
     }
   };
 
@@ -1436,6 +1592,14 @@ export default function LeadQuotationSection({
                           >
                             <Download className="w-4 h-4" />
                           </button>
+                          <button
+                            title="Send Quotation by Email"
+                            onClick={() => handleEmail(q)}
+                            disabled={emailingId === q.id || detailLoadingId === q.id}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40"
+                          >
+                            {emailingId === q.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
+                          </button>
                           {q.status === "ACCEPTED" && (
                             <button
                               title="Create Invoice"
@@ -1487,6 +1651,18 @@ export default function LeadQuotationSection({
           downloading={downloadingId === viewTarget.id}
           onStatusChange={(s) => handleStatusChange(viewTarget.id, s)}
           updatingStatus={updatingStatusId === viewTarget.id}
+        />
+      )}
+
+      {emailingQuotation && (
+        <SendLeadQuotationEmailModal
+          quotation={emailingQuotation}
+          leadId={leadId}
+          onClose={() => setEmailingQuotation(null)}
+          onSent={(status) => {
+            setQuotations((prev) => prev.map((q) => (q.id === emailingQuotation.id ? { ...q, status } : q)));
+            setViewTarget((prev) => (prev && prev.id === emailingQuotation.id ? { ...prev, status } : prev));
+          }}
         />
       )}
     </>

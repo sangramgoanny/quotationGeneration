@@ -1,17 +1,20 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
-  Building2, ChevronLeft, ChevronRight, Download, Eye, FileText,
-  Loader2, Plus, ReceiptText, RefreshCw, Search, WalletCards, X,
+  AlertCircle, Ban, Building2, CheckCircle2, ChevronLeft, ChevronRight, Download, Eye, FileText,
+  Loader2, Mail, Plus, ReceiptText, RefreshCw, Search, Send, WalletCards, X,
 } from "lucide-react";
-import { jsPDF } from "jspdf";
+import { jsPDF, GState } from "jspdf";
 import {
   receiptsApi, type CreateReceiptPayload, type PaymentMode, type ReceiptListItem,
 } from "@/lib/api/receipts";
 import { invoicesApi } from "@/lib/api/invoices";
+import { clientsApi } from "@/lib/api/clients";
+import { activityApi } from "@/lib/api/activity";
 import type { Invoice } from "@/types/invoice";
+import { usePermissions } from "@/lib/rbac/usePermissions";
 
 const CURRENCY = process.env.NEXT_PUBLIC_CURRENCY ?? "INR";
 const money = (value: string | number) => new Intl.NumberFormat("en-IN", {
@@ -20,6 +23,10 @@ const money = (value: string | number) => new Intl.NumberFormat("en-IN", {
 const formatDate = (value?: string | null) => value
   ? new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
   : "—";
+const longDate = (value?: string | null) => value
+  ? new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })
+  : "Not applicable";
+const dateTime = (value: string) => new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const mode = (value: string) => value.replaceAll("_", " ");
 const invoiceId = (receipt: ReceiptListItem) => receipt.invoiceId ?? receipt.invoice?.id;
 const clientId = (receipt: ReceiptListItem) => receipt.clientId ?? receipt.client?.id;
@@ -72,7 +79,7 @@ function amountInWords(value: string | number) {
   return `Indian Rupees ${rupees}${paise ? ` and ${belowThousand(paise)} Paise` : ""} Only`;
 }
 
-async function downloadReceipt(receipt: ReceiptListItem) {
+async function buildReceiptPdf(receipt: ReceiptListItem) {
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
   const letterhead = new Image();
   letterhead.src = "/letterhead.jpg";
@@ -201,42 +208,74 @@ async function downloadReceipt(receipt: ReceiptListItem) {
     doc.text(doc.splitTextToSize(receipt.notes, 160).slice(0, 2), 23, 234);
   }
 
-  // Acknowledgement and authorization
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(8.5);
-  doc.setTextColor(71, 85, 105);
-  doc.text("Payment received and accounted for. Thank you for your business.", left, 256);
+  // Acknowledgement and authorization — anchored below the particulars table
+  // (whose height varies with `receipt.notes`) so the stamp never overlaps it.
+  const tableBottom = 200 + (receipt.notes ? 48 : 36);
+  const footerTop = tableBottom + 3;
   const signatoryCenter = 164;
+
   // Derive the PDF height from the image's actual pixel dimensions. This keeps
   // the signature and circular stamp at their exact original aspect ratio.
+  let stampBottom = footerTop;
   if (stamp.naturalWidth && stamp.naturalHeight) {
-    const stampWidth = 32;
+    const stampWidth = 45;
     const stampHeight = stampWidth * (stamp.naturalHeight / stamp.naturalWidth);
     doc.addImage(
       stamp,
       "PNG",
       signatoryCenter - stampWidth / 2,
-      231,
+      footerTop,
       stampWidth,
       stampHeight,
       "receipt-stamp",
       "NONE",
     );
+    stampBottom = footerTop + stampHeight;
   }
+  const companyNameY = stampBottom + 5;
+  const signatoryY = companyNameY + 5;
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8.5);
+  doc.setTextColor(71, 85, 105);
+  doc.text("Payment received and accounted for. Thank you for your business.", left, companyNameY);
+
   doc.setFont("helvetica", "bold");
   doc.setFontSize(8.5);
   doc.setTextColor(15, 23, 42);
-  doc.text("Goanny Technologies Pvt. Ltd.", signatoryCenter, 256, { align: "center" });
+  doc.text("Goanny Technologies Pvt. Ltd.", signatoryCenter, companyNameY, { align: "center" });
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
-  doc.text("Authorized Signatory", signatoryCenter, 262, { align: "center" });
+  doc.text("Authorized Signatory", signatoryCenter, signatoryY, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(100, 116, 139);
-  doc.text("This is a system-generated receipt.", 105, 278, { align: "center" });
+  doc.text("This is a system-generated receipt.", 105, signatoryY + 6, { align: "center" });
+
+  if (receipt.status === "VOID") {
+    doc.saveGraphicsState();
+    doc.setTextColor(220, 38, 38);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(64);
+    doc.setGState(new GState({ opacity: 0.25 }));
+    doc.text("VOID", 105, 160, { align: "center", angle: 35 });
+    doc.restoreGraphicsState();
+  }
+
+  return doc;
+}
+
+async function downloadReceipt(receipt: ReceiptListItem) {
+  const doc = await buildReceiptPdf(receipt);
   doc.save(`${displayedReceiptNumber(receipt).replaceAll("/", "-")}.pdf`);
+}
+
+async function getReceiptPdfAttachment(receipt: ReceiptListItem): Promise<{ filename: string; base64: string }> {
+  const doc = await buildReceiptPdf(receipt);
+  const dataUri = doc.output("datauristring");
+  return { filename: `${displayedReceiptNumber(receipt).replaceAll("/", "-")}.pdf`, base64: dataUri.slice(dataUri.indexOf(",") + 1) };
 }
 
 function CreateReceiptModal({ receipts, onClose, onCreated }: { receipts: ReceiptListItem[]; onClose: () => void; onCreated: () => Promise<void> }) {
@@ -358,7 +397,178 @@ function CreateReceiptModal({ receipts, onClose, onCreated }: { receipts: Receip
   );
 }
 
-function ReceiptModal({ receipt, onClose }: { receipt: ReceiptListItem; onClose: () => void }) {
+function VoidReceiptModal({ receipt, onClose, onVoided }: { receipt: ReceiptListItem; onClose: () => void; onVoided: () => Promise<void> }) {
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const submit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (reason.trim().length < 3) {
+      setError("Enter a reason with at least 3 characters.");
+      return;
+    }
+    setError("");
+    setSaving(true);
+    try {
+      await receiptsApi.void(receipt.id, reason.trim());
+      await onVoided();
+      onClose();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to void receipt");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
+      <form onSubmit={submit} className="w-full max-w-md overflow-hidden rounded-3xl bg-white shadow-2xl">
+        <div className="flex items-start justify-between border-b border-slate-200 p-5">
+          <div><p className="text-[10px] font-black uppercase tracking-[0.14em] text-red-600">Finance / Receipts</p><h2 className="mt-1 text-xl font-black text-slate-950">Void Receipt</h2><p className="mt-1 text-xs text-slate-500">{displayedReceiptNumber(receipt)} — this cannot be undone.</p></div>
+          <button type="button" onClick={onClose} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="space-y-4 p-5">
+          {error ? <div className="rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
+          <div className="rounded-xl bg-amber-50 p-3 text-xs font-semibold text-amber-800">
+            Voiding marks this receipt invalid{receipt.invoice?.invoiceNumber ? ` and restores ${money(receipt.amount)} to the balance due on invoice ${receipt.invoice.invoiceNumber}` : ""}. The record stays on file for audit — it cannot be deleted or un-voided.
+          </div>
+          <label className="block text-xs font-bold text-slate-600">Reason for voiding
+            <textarea rows={3} required value={reason} onChange={(event) => setReason(event.target.value)} className="mt-1 w-full resize-none rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-red-400 focus:ring-2 focus:ring-red-100" placeholder="e.g. Entered against the wrong invoice" />
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 border-t border-slate-200 bg-slate-50 p-4">
+          <button type="button" onClick={onClose} className="rounded-xl border border-slate-200 px-5 py-2.5 text-sm font-bold text-slate-700 hover:bg-white">Cancel</button>
+          <button type="submit" disabled={saving} className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-2.5 text-sm font-black text-white hover:bg-red-700 disabled:opacity-50">{saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Ban className="h-4 w-4" />} Void Receipt</button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function SendReceiptEmailModal({ receipt, onClose }: { receipt: ReceiptListItem; onClose: () => void }) {
+  const [to, setTo] = useState("");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState(`Payment Receipt ${displayedReceiptNumber(receipt)} | Goanny Ai Tech`);
+  const [message, setMessage] = useState(
+    `Dear Sir/Madam,\n\nGreetings from Goanny AI Tech.\n\nWith regard to the attached receipt, please find the acknowledgement for the payment received.\n\nReceipt Number: ${displayedReceiptNumber(receipt)}\nReceipt Date: ${longDate(receipt.date)}\nPayment Mode: ${mode(receipt.paymentMode)}\nAmount Received: ${money(receipt.amount)}\n\nPlease find the attached receipt for your records. If you have any questions or require further clarification, please feel free to contact us.\n\nThank you for your business.\n\nRegards,\nAccounts Team\nGoanny AI Tech\naccounts@goannyaitech.com\nwww.goannyaitech.com`,
+  );
+  const [loadingClient, setLoadingClient] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const id = clientId(receipt);
+    if (!id) { setLoadingClient(false); return; }
+    clientsApi.get(id)
+      .then((client) => { if (active) setTo(client.primaryEmail || client.secondaryEmail || ""); })
+      .catch(() => {})
+      .finally(() => { if (active) setLoadingClient(false); });
+    return () => { active = false; };
+  }, [receipt]);
+
+  useEffect(() => {
+    const id = clientId(receipt);
+    if (!id) return;
+    activityApi.create(id, "Email Started", `Opened send-email form for Receipt ${displayedReceiptNumber(receipt)}`).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleClose = () => {
+    const id = clientId(receipt);
+    if (!sent && id) {
+      activityApi.create(id, "Email Closed", `Closed send-email form for Receipt ${displayedReceiptNumber(receipt)} without sending`).catch(() => {});
+    }
+    onClose();
+  };
+
+  const send = async () => {
+    if (!to.trim()) { setError("Recipient email is required"); return; }
+    setSending(true);
+    setError("");
+    try {
+      const { filename, base64 } = await getReceiptPdfAttachment(receipt);
+      await receiptsApi.sendEmail(receipt.id, {
+        to: to.trim(),
+        cc: cc.trim() ? cc.split(",").map((email) => email.trim()).filter(Boolean) : undefined,
+        subject,
+        message,
+        attachmentFilename: filename,
+        attachmentBase64: base64,
+      });
+      setSent(true);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Unable to send email");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const field = "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100";
+
+  return (
+    <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={handleClose}>
+      <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div><p className="text-[10px] font-bold uppercase tracking-wide text-emerald-600">Send by email</p><h2 className="mt-1 text-xl font-black text-slate-950">{displayedReceiptNumber(receipt)}</h2></div>
+          <button onClick={handleClose} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+        </div>
+        {sent ? (
+          <div className="flex flex-col items-center gap-3 p-10 text-center">
+            <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+            <p className="font-bold text-slate-800">Email sent to {to}</p>
+            <button onClick={onClose} className="mt-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-black text-white">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-4 p-6">
+              {receipt.emailHistory?.length ? (
+                <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-700">
+                  <p className="flex items-center gap-2 font-bold">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    Sent {receipt.emailHistory.length} time{receipt.emailHistory.length > 1 ? "s" : ""}
+                  </p>
+                  <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto">
+                    {receipt.emailHistory.map((entry, index) => (
+                      <li key={index} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{entry.to}</span>
+                        <span className="shrink-0 text-emerald-500">{dateTime(entry.sentAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {error ? <div className="flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div> : null}
+              <label className="text-xs font-bold text-slate-600">To
+                <input type="email" value={to} onChange={(event) => setTo(event.target.value)} disabled={loadingClient} className={field} placeholder="client@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Cc <span className="font-normal text-slate-400">(optional, comma separated)</span>
+                <input value={cc} onChange={(event) => setCc(event.target.value)} className={field} placeholder="finance@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Subject
+                <input value={subject} onChange={(event) => setSubject(event.target.value)} className={field} />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Message
+                <textarea value={message} onChange={(event) => setMessage(event.target.value)} className="mt-1 min-h-32 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-emerald-400 focus:ring-2 focus:ring-emerald-100" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <button onClick={handleClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancel</button>
+              <button disabled={sending || loadingClient} onClick={() => void send()} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-5 py-2 text-sm font-black text-white disabled:opacity-60">
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {receipt.lastEmail ? "Resend Email" : "Send Email"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function ReceiptModal({ receipt, canVoid, onClose, onRequestVoid, onEmail }: { receipt: ReceiptListItem; canVoid: boolean; onClose: () => void; onRequestVoid: () => void; onEmail: () => void }) {
+  const isVoid = receipt.status === "VOID";
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm">
       <div className="w-full max-w-3xl overflow-hidden rounded-3xl bg-white shadow-2xl">
@@ -368,6 +578,13 @@ function ReceiptModal({ receipt, onClose }: { receipt: ReceiptListItem; onClose:
         </div>
         <div className="space-y-5 p-6">
           <div className="rounded-xl bg-[#005591] px-4 py-3 text-center"><p className="text-lg font-black tracking-[0.12em] text-white">PAYMENT RECEIPT</p></div>
+          {isVoid ? (
+            <div className="rounded-xl border border-red-200 bg-red-50 p-4">
+              <p className="inline-flex items-center gap-2 text-sm font-black text-red-700"><Ban className="h-4 w-4" /> This receipt has been voided</p>
+              {receipt.voidReason ? <p className="mt-1 text-sm text-red-600">{receipt.voidReason}</p> : null}
+              <p className="mt-1 text-xs text-red-500">{receipt.voidedBy?.name ? `By ${receipt.voidedBy.name}` : "Voided"}{receipt.voidedAt ? ` · ${formatDate(receipt.voidedAt)}` : ""}</p>
+            </div>
+          ) : null}
           <div className="overflow-hidden rounded-2xl border border-slate-200">
             <div className="grid bg-slate-50 sm:grid-cols-3">
               {[["Receipt No.", displayedReceiptNumber(receipt)], ["Receipt Date", formatDate(receipt.date)], ["Payment Mode", mode(receipt.paymentMode)]].map(([label, value]) => <div key={label} className="border-b border-slate-200 p-4 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0"><p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-1 font-black text-slate-800">{value}</p></div>)}
@@ -381,16 +598,20 @@ function ReceiptModal({ receipt, onClose }: { receipt: ReceiptListItem; onClose:
           <div className="grid gap-3 sm:grid-cols-2">
             {[
               ["Transaction Reference", receipt.referenceNumber || "Not provided"],
-              ["Payment Status", "Received"],
-            ].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 p-3"><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className="mt-1 text-sm font-bold text-slate-800">{value}</p></div>)}
+              ["Payment Status", isVoid ? "Voided" : "Received"],
+            ].map(([label, value]) => <div key={label} className="rounded-xl border border-slate-200 p-3"><p className="text-[10px] font-bold uppercase text-slate-400">{label}</p><p className={`mt-1 text-sm font-bold ${isVoid && label === "Payment Status" ? "text-red-600" : "text-slate-800"}`}>{value}</p></div>)}
           </div>
           {receipt.notes ? <div className="rounded-xl bg-slate-50 p-4"><p className="text-[10px] font-bold uppercase text-slate-400">Remarks</p><p className="mt-1 text-sm text-slate-700">{receipt.notes}</p></div> : null}
           <p className="text-center text-xs text-slate-500">We acknowledge with thanks the receipt of the payment detailed above.</p>
           <div className="grid gap-2 sm:grid-cols-3">
             <button onClick={() => void downloadReceipt(receipt)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-4 py-3 text-sm font-black text-white hover:bg-emerald-700"><Download className="h-4 w-4" /> Download</button>
+            <button onClick={onEmail} className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-700 hover:bg-emerald-100"><Mail className="h-4 w-4" /> {receipt.lastEmail ? "Resend Email" : "Send by Email"}</button>
             {invoiceId(receipt) ? <Link href={`/invoice?invoiceId=${invoiceId(receipt)}`} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100"><FileText className="h-4 w-4" /> View invoice</Link> : null}
             {clientId(receipt) ? <Link href={`/crm/clients/${clientId(receipt)}`} className="inline-flex items-center justify-center gap-2 rounded-xl bg-violet-50 px-4 py-3 text-sm font-black text-violet-700 hover:bg-violet-100"><Building2 className="h-4 w-4" /> View client</Link> : null}
           </div>
+          {!isVoid && canVoid ? (
+            <button onClick={onRequestVoid} className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-700 hover:bg-red-100"><Ban className="h-4 w-4" /> Void this receipt</button>
+          ) : null}
         </div>
       </div>
     </div>
@@ -398,12 +619,16 @@ function ReceiptModal({ receipt, onClose }: { receipt: ReceiptListItem; onClose:
 }
 
 export default function ReceiptPage() {
+  const { can } = usePermissions();
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [selected, setSelected] = useState<ReceiptListItem | null>(null);
+  const [emailingReceipt, setEmailingReceipt] = useState<ReceiptListItem | null>(null);
+  const [voiding, setVoiding] = useState<ReceiptListItem | null>(null);
   const [creating, setCreating] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, pages: 1 });
 
@@ -411,7 +636,7 @@ export default function ReceiptPage() {
     setLoading(true);
     setError("");
     try {
-      const result = await receiptsApi.list({ page, limit: 20 });
+      const result = await receiptsApi.list({ search: debouncedSearch || undefined, page, limit: 20 });
       setReceipts(result.receipts ?? []);
       setPagination({ total: result.pagination?.total ?? 0, pages: Math.max(1, result.pagination?.pages ?? 1) });
     } catch (cause) {
@@ -419,9 +644,27 @@ export default function ReceiptPage() {
     } finally {
       setLoading(false);
     }
-  }, [page]);
+  }, [page, debouncedSearch]);
 
   useEffect(() => { void load(); }, [load]);
+
+  const openEmailModal = async (receipt: ReceiptListItem) => {
+    try {
+      setEmailingReceipt(await receiptsApi.get(receipt.id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Unable to load receipt");
+    }
+  };
+
+  // Debounce the search box so we don't hit the API on every keystroke, and
+  // search the full receipt list on the backend rather than just this page.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch]);
+
   useEffect(() => {
     const receiptId = new URLSearchParams(window.location.search).get("receiptId");
     if (!receiptId) return;
@@ -431,15 +674,9 @@ export default function ReceiptPage() {
       .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Unable to open receipt"); });
     return () => { active = false; };
   }, []);
-  const visible = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return receipts;
-    return receipts.filter((receipt) => [
-      displayedReceiptNumber(receipt), receipt.receiptNumber, receipt.referenceNumber, receipt.invoice?.invoiceNumber,
-      receipt.client?.companyName, receipt.client?.clientCode,
-    ].some((value) => value?.toLowerCase().includes(term)));
-  }, [receipts, search]);
-  const pageTotal = receipts.reduce((sum, receipt) => sum + Number(receipt.amount || 0), 0);
+  const pageTotal = receipts
+    .filter((receipt) => receipt.status !== "VOID")
+    .reduce((sum, receipt) => sum + Number(receipt.amount || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -462,24 +699,43 @@ export default function ReceiptPage() {
         })}
       </div>
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black text-slate-950">All Receipts</h2><p className="text-xs text-slate-500">{pagination.total.toLocaleString("en-IN")} payment records</p></div><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Receipt, invoice or client" className="h-9 w-64 rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100" /></div></div>
+        <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center sm:justify-between"><div><h2 className="font-black text-slate-950">All Receipts</h2><p className="text-xs text-slate-500">{pagination.total.toLocaleString("en-IN")} payment records</p></div><div className="relative"><Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search receipt, invoice, client or reference" className="h-9 w-72 rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-emerald-300 focus:ring-2 focus:ring-emerald-100" /></div></div>
         {error ? <div className="m-4 rounded-xl bg-red-50 p-3 text-sm font-bold text-red-700">{error}</div> : null}
         <div className="overflow-x-auto"><table className="w-full min-w-[950px] text-sm"><thead className="bg-slate-50 text-left text-[10px] uppercase tracking-[0.12em] text-slate-500"><tr><th className="px-4 py-3">Receipt</th><th className="px-4 py-3">Client</th><th className="px-4 py-3">Invoice</th><th className="px-4 py-3">Date</th><th className="px-4 py-3">Mode / reference</th><th className="px-4 py-3 text-right">Amount</th><th className="px-4 py-3 text-center">Actions</th></tr></thead>
           <tbody className="divide-y divide-slate-100">
-            {loading ? Array.from({ length: 5 }).map((_, row) => <tr key={row}>{Array.from({ length: 7 }).map((__, cell) => <td key={cell} className="px-4 py-4"><div className="h-4 animate-pulse rounded bg-slate-100" /></td>)}</tr>) : visible.length ? visible.map((receipt) => <tr key={receipt.id} className="hover:bg-emerald-50/40">
-              <td className="whitespace-nowrap px-4 py-3 text-xs font-black text-emerald-700">{displayedReceiptNumber(receipt)}</td>
+            {loading ? Array.from({ length: 5 }).map((_, row) => <tr key={row}>{Array.from({ length: 7 }).map((__, cell) => <td key={cell} className="px-4 py-4"><div className="h-4 animate-pulse rounded bg-slate-100" /></td>)}</tr>) : receipts.length ? receipts.map((receipt) => <tr key={receipt.id} className={`hover:bg-emerald-50/40 ${receipt.status === "VOID" ? "opacity-60" : ""}`}>
+              <td className="whitespace-nowrap px-4 py-3 text-xs font-black text-emerald-700">{displayedReceiptNumber(receipt)}{receipt.status === "VOID" ? <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[9px] font-black text-red-600">VOID</span> : null}</td>
               <td className="px-4 py-3">{clientId(receipt) ? <Link href={`/crm/clients/${clientId(receipt)}`} className="font-bold text-slate-800 hover:text-violet-700">{receipt.client?.companyName || "View client"}</Link> : "—"}<p className="text-[10px] text-slate-400">{receipt.client?.clientCode}</p></td>
               <td className="px-4 py-3">{invoiceId(receipt) ? <Link href={`/invoice?invoiceId=${invoiceId(receipt)}`} className="font-bold text-blue-700 hover:underline">{receipt.invoice?.invoiceNumber || "View invoice"}</Link> : "—"}</td>
               <td className="px-4 py-3 text-slate-600">{formatDate(receipt.date)}</td>
               <td className="px-4 py-3"><p className="font-bold text-slate-700">{mode(receipt.paymentMode)}</p><p className="text-[10px] text-slate-400">{receipt.referenceNumber || "No reference"}</p></td>
-              <td className="px-4 py-3 text-right font-black text-emerald-700">{money(receipt.amount)}</td>
-              <td className="px-4 py-3"><div className="flex justify-center gap-1"><button onClick={() => setSelected(receipt)} title="View receipt" className="rounded-lg p-2 text-blue-600 hover:bg-blue-50"><Eye className="h-4 w-4" /></button><button onClick={() => void downloadReceipt(receipt)} title="Download receipt" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50"><Download className="h-4 w-4" /></button></div></td>
-            </tr>) : <tr><td colSpan={7} className="py-16 text-center"><ReceiptText className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 font-bold text-slate-700">No receipts found</p><p className="mt-1 text-xs text-slate-400">Receipts created from invoices will appear here.</p></td></tr>}
+              <td className={`px-4 py-3 text-right font-black ${receipt.status === "VOID" ? "text-slate-400 line-through" : "text-emerald-700"}`}>{money(receipt.amount)}</td>
+              <td className="px-4 py-3"><div className="flex justify-center gap-1"><button onClick={() => setSelected(receipt)} title="View receipt" className="rounded-lg p-2 text-blue-600 hover:bg-blue-50"><Eye className="h-4 w-4" /></button><button onClick={() => void downloadReceipt(receipt)} title="Download receipt" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50"><Download className="h-4 w-4" /></button><button onClick={() => void openEmailModal(receipt)} title="Send receipt by email" className="rounded-lg p-2 text-blue-600 hover:bg-blue-50"><Mail className="h-4 w-4" /></button>{receipt.status !== "VOID" && can("receipts", "delete") ? <button onClick={() => setVoiding(receipt)} title="Void receipt" className="rounded-lg p-2 text-red-600 hover:bg-red-50"><Ban className="h-4 w-4" /></button> : null}</div></td>
+            </tr>) : <tr><td colSpan={7} className="py-16 text-center"><ReceiptText className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 font-bold text-slate-700">No receipts found</p><p className="mt-1 text-xs text-slate-400">{debouncedSearch ? `No receipts match "${debouncedSearch}".` : "Receipts created from invoices will appear here."}</p></td></tr>}
           </tbody></table></div>
         <div className="flex items-center justify-between border-t border-slate-100 px-4 py-3"><p className="text-xs font-semibold text-slate-500">Page {page} of {pagination.pages}</p><div className="flex gap-2"><button disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))} className="rounded-lg border border-slate-200 p-2 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button><button disabled={page >= pagination.pages || loading} onClick={() => setPage((value) => Math.min(pagination.pages, value + 1))} className="rounded-lg border border-slate-200 p-2 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button></div></div>
       </section>
-      {selected ? <ReceiptModal receipt={selected} onClose={() => setSelected(null)} /> : null}
+      {selected ? (
+        <ReceiptModal
+          receipt={selected}
+          canVoid={can("receipts", "delete")}
+          onClose={() => setSelected(null)}
+          onRequestVoid={() => setVoiding(selected)}
+          onEmail={() => void openEmailModal(selected)}
+        />
+      ) : null}
+      {emailingReceipt ? <SendReceiptEmailModal receipt={emailingReceipt} onClose={() => setEmailingReceipt(null)} /> : null}
       {creating ? <CreateReceiptModal receipts={receipts} onClose={() => setCreating(false)} onCreated={load} /> : null}
+      {voiding ? (
+        <VoidReceiptModal
+          receipt={voiding}
+          onClose={() => setVoiding(null)}
+          onVoided={async () => {
+            await load();
+            setSelected(null);
+          }}
+        />
+      ) : null}
       {loading && !receipts.length ? <span className="sr-only"><Loader2 className="animate-spin" /> Loading receipts</span> : null}
     </div>
   );

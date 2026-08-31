@@ -39,6 +39,8 @@ export type LeadSource =
   | "Existing Client"
   | "Other";
 
+export type LeadPriority = "Low" | "Medium" | "High";
+
 export type PaymentTerms =
   | "Advance Payment"
   | "Net 15"
@@ -57,6 +59,19 @@ export type DocumentType =
   | "NDA"
   | "Signed Agreement"
   | "Other";
+
+export const DOCUMENT_TYPES: DocumentType[] = [
+  "GST Certificate",
+  "PAN Card",
+  "MSME Certificate",
+  "Company Registration",
+  "Incorporation Certificate",
+  "Cancelled Cheque",
+  "Purchase Order",
+  "NDA",
+  "Signed Agreement",
+  "Other",
+];
 
 // ─── Interfaces ───────────────────────────────────────────────────────────────
 
@@ -96,6 +111,7 @@ export interface ClientDocument {
   fileType: string;
   fileSize: number;
   s3Url: string;
+  downloadUrl: string;
   uploadedBy: string;
   uploadedAt: string;
 }
@@ -119,6 +135,10 @@ export interface Client {
   clientType: ClientType;
   companyName: string;
   leadStage?: "New" | "Hot" | "Warm" | "Cold" | "Quotation Sent" | "Won" | "Lost";
+  priority?: LeadPriority;
+  score?: number | null;
+  nextAction?: string | null;
+  lostReason?: string | null;
   contactPersonName: string;
   designation: string;
   industry: Industry | "";
@@ -199,6 +219,25 @@ export interface Client {
   // Timestamps
   createdAt?: string;
   updatedAt?: string;
+
+  // Email
+  lastEmail?: {
+    to: string;
+    cc?: string[];
+    subject: string;
+    message: string;
+    sentAt: string;
+  } | null;
+  emailHistory?: {
+    to: string;
+    cc?: string[];
+    subject: string;
+    message: string;
+    sentAt: string;
+  }[];
+
+  // Activity feed (populated on the lead detail response; use activityApi.list for clients)
+  activities?: ActivityItem[];
 }
 
 // ─── Empty Defaults ───────────────────────────────────────────────────────────

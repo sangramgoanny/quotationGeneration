@@ -10,13 +10,14 @@ import {
   Sparkles, Building2, Mail, Phone, CalendarDays, X,
   TrendingUp, Clock3, ShieldCheck, Upload, MoreVertical,
   WalletCards, CircleDollarSign, BadgeIndianRupee, FileClock,
-  UserRoundCheck, Activity as ActivityIcon, ChevronLeft, ChevronRight,
+  UserRoundCheck, Activity as ActivityIcon, ChevronLeft, ChevronRight, ChevronUp,
 } from "lucide-react";
 import { clientsApi } from "@/lib/api/clients";
 import { invoicesApi } from "@/lib/api/invoices";
 import { usersApi, type User as AccountUser } from "@/lib/api/users";
 import type { Client, ClientStatus, Industry } from "@/types/client";
 import DateRangePicker from "@/components/ui/DateRangePicker";
+import { SendEmailModal } from "@/components/shared/SendEmailModal";
 
 // ─── Status badge config ──────────────────────────────────────────────────────
 
@@ -219,6 +220,14 @@ function ActionButtons({
   client: Client;
 }) {
   const router = useRouter();
+  const [emailing, setEmailing] = useState(false);
+  const [emailTarget, setEmailTarget] = useState<Client>(client);
+
+  const openEmail = () => {
+    setEmailTarget(client);
+    setEmailing(true);
+    clientsApi.get(client.id ?? "").then(setEmailTarget).catch(() => {});
+  };
 
   const btn = "group/action p-2 rounded-xl transition-all duration-300 disabled:opacity-40 hover:-translate-y-0.5";
 
@@ -239,6 +248,16 @@ function ActionButtons({
       >
         <Edit className="h-4 w-4 transition-transform group-hover/action:scale-110" />
       </button>
+
+      {client.primaryEmail && (
+        <button
+          title="Send Email"
+          onClick={openEmail}
+          className={`${btn} text-indigo-600 hover:bg-indigo-50`}
+        >
+          <Mail className="h-4 w-4 transition-transform group-hover/action:scale-110" />
+        </button>
+      )}
 
       <button
         title="Add Activity"
@@ -275,6 +294,19 @@ function ActionButtons({
           })}
         </div>
       </details>
+      {emailing && (
+        <SendEmailModal
+          id={client.id ?? ""}
+          title={emailTarget.companyName || "Client"}
+          defaultTo={emailTarget.primaryEmail || emailTarget.secondaryEmail || ""}
+          defaultSubject="Message from Goanny Ai Tech"
+          defaultMessage={`Dear ${emailTarget.contactPersonName || emailTarget.companyName || "Client"},\n\n\n\nRegards,\nGoanny Ai Tech`}
+          lastEmail={emailTarget.lastEmail}
+          emailHistory={emailTarget.emailHistory}
+          onSend={async (payload) => { await clientsApi.sendEmail(client.id ?? "", payload); }}
+          onClose={() => setEmailing(false)}
+        />
+      )}
     </div>
   );
 }
@@ -352,6 +384,7 @@ function ClientsPageInner() {
   const [profileFilter, setProfileFilter] = useState(searchParams.get("profile") ?? "");
   const [fromDate, setFromDate] = useState(searchParams.get("fromDate") ?? "");
   const [toDate, setToDate] = useState(searchParams.get("toDate") ?? "");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(Math.max(1, Number(searchParams.get("page")) || 1));
   const [limit, setLimit] = useState(Math.max(10, Number(searchParams.get("limit")) || 20));
   const [pagination, setPagination] = useState({ total: 0, pages: 1 });
@@ -525,38 +558,6 @@ function ClientsPageInner() {
 
   return (
     <div className="space-y-5 bg-[#f7f9fc] p-3 lg:p-5">
-      <section className="relative overflow-hidden rounded-2xl bg-[#061526] px-4 py-3.5 text-white shadow-[0_18px_40px_rgba(6,21,38,0.14)] sm:px-5">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_0%,rgba(14,165,233,0.34),transparent_34%),radial-gradient(circle_at_92%_100%,rgba(230,0,70,0.24),transparent_35%)]" />
-        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="min-w-0 shrink-0">
-            <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-sky-200">
-              <Sparkles className="h-3 w-3 text-sky-300" /> Clients / Leads
-            </div>
-            <p className="mt-1 text-xs font-medium text-slate-300">
-              {lastRefreshed ? `Updated ${lastRefreshed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Manage your client relationships"}
-            </p>
-          </div>
-          <div className="relative min-w-0 flex-1">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              value={searchInput}
-              onChange={(event) => setSearchInput(event.target.value)}
-              placeholder="Search company, contact, phone or email"
-              aria-label="Search clients"
-              className="h-10 w-full rounded-xl border border-white/15 bg-white/10 pl-10 pr-4 text-xs text-white outline-none placeholder:text-slate-400 focus:border-sky-300 focus:bg-white/15 focus:ring-2 focus:ring-sky-300/30"
-            />
-          </div>
-          <div className="flex shrink-0 flex-wrap items-center gap-2">
-            <button onClick={fetchClients} title="Refresh client data" className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3.5 text-xs font-bold text-white transition hover:bg-white/20">
-              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
-            </button>
-            <Link href="/crm/clients/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#E60046] px-4 text-xs font-black text-white shadow-lg shadow-rose-950/20 transition hover:-translate-y-0.5 hover:bg-rose-500">
-              <Plus className="h-3.5 w-3.5" /> Add New Client
-            </Link>
-          </div>
-        </div>
-      </section>
-
       {/* ── Stats ── */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         {[
@@ -564,87 +565,62 @@ function ClientsPageInner() {
           { label: "Active Clients", value: statusCounts.Active.toLocaleString("en-IN"), icon: UserCheck, tone: "bg-emerald-50 text-emerald-600", note: "Currently active", action: () => { setStatusFilter("Active"); setPage(1); } },
           { label: "Follow-ups Due", value: "—", icon: CalendarDays, tone: "bg-violet-50 text-violet-600", note: "Awaiting activity API" },
           { label: "Conversion Rate", value: `${conversionRate}%`, icon: TrendingUp, tone: "bg-indigo-50 text-indigo-600", note: "Active / total clients" },
-        ].map(({ label, value, icon: Icon, tone, note, action }) => (
-          <button key={label} type="button" onClick={action} disabled={!action} className="rounded-2xl border border-slate-200 bg-white p-4 text-left shadow-sm transition enabled:hover:-translate-y-0.5 enabled:hover:border-blue-200 enabled:hover:shadow-md">
+        ].map(({ label, value, icon: Icon, tone, action }) => (
+          <button key={label} type="button" onClick={action} disabled={!action} title={label} className="rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-sm transition enabled:hover:-translate-y-0.5 enabled:hover:border-blue-200 enabled:hover:shadow-md">
             <div className="flex items-center gap-3">
-              <span className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${tone}`}><Icon className="h-5 w-5" /></span>
-              <div className="min-w-0"><p className="text-[10px] font-bold text-slate-500">{label}</p><p className="mt-0.5 truncate text-lg font-black text-slate-950">{countsLoading && label === "Active Clients" ? "—" : value}</p></div>
+              <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-xl ${tone}`}><Icon className="h-4 w-4" /></span>
+              <div className="min-w-0"><p className="truncate text-[10px] font-bold text-slate-500">{label}</p><p className="mt-0.5 truncate text-base font-black text-slate-950">{countsLoading && label === "Active Clients" ? "—" : value}</p></div>
             </div>
-            <p className="mt-2 text-[10px] font-semibold text-emerald-600">↗ {note}</p>
           </button>
         ))}
       </div>
 
-      <section className="hidden grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-5">
-        {[
-          { label: "Healthy Accounts", value: healthyClients, icon: ShieldCheck, text: "Rule score 80–100 on this page", tone: "emerald", action: () => setHealthFilter("healthy") },
-          { label: "Needs Attention", value: atRiskClients, icon: AlertCircle, text: "Rule score below 60 on this page", tone: "red", action: () => setHealthFilter("attention") },
-          { label: "Profile Gaps", value: incompleteProfiles, icon: Clock3, text: "Missing email or phone details", tone: "amber", action: () => setProfileFilter("incomplete") },
-          { label: "Upsell Ready", value: null, icon: TrendingUp, text: "Revenue and engagement data required", tone: "sky", action: undefined },
-          { label: "Follow-ups Due", value: null, icon: CalendarDays, text: "Follow-up summary API required", tone: "amber", action: undefined },
-        ].map((insight) => {
-          const Icon = insight.icon;
-          const toneClass: Record<string, string> = {
-            emerald: "bg-emerald-50 text-emerald-700",
-            red: "bg-red-50 text-red-700",
-            amber: "bg-amber-50 text-amber-700",
-            sky: "bg-sky-50 text-[#0070B8]",
-          };
-
-          return (
-            <button type="button" onClick={insight.action} disabled={!insight.action} key={insight.label} className="group rounded-xl border border-slate-200 bg-white p-2.5 text-left shadow-sm transition enabled:hover:border-sky-200 disabled:cursor-default">
-              <div className="flex items-start gap-3">
-                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${toneClass[insight.tone]}`}>
-                  <Icon className="h-4 w-4" />
-                </div>
-                <div>
-                  <div className="flex items-center gap-2">
-                    <p className={`text-2xl font-black tracking-tight ${insight.value === null ? "text-slate-400" : "text-slate-950"}`}>{insight.value === null ? "—" : insight.value}</p>
-                  </div>
-                  <p className="text-[11px] font-black text-slate-800">{insight.label}</p>
-                  <p className="hidden">{insight.text}</p>
-                </div>
+      <section className="overflow-hidden rounded-2xl shadow-[0_18px_40px_rgba(6,21,38,0.14)]">
+        <div className="relative overflow-hidden rounded-t-2xl bg-[#061526] px-4 py-2.5 text-white sm:px-5">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_8%_0%,rgba(14,165,233,0.34),transparent_34%),radial-gradient(circle_at_92%_100%,rgba(230,0,70,0.24),transparent_35%)]" />
+          <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="min-w-0 shrink-0">
+              <div className="flex items-center gap-2 text-[9px] font-black uppercase tracking-[0.16em] text-sky-200">
+                <Sparkles className="h-3 w-3 text-sky-300" /> Clients / Leads
               </div>
-            </button>
-          );
-        })}
-      </section>
-
-      <details className="hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-xs font-bold text-slate-600">
-          Financial summary
-          <span className="text-[10px] font-medium text-slate-400">Reporting API required · click to expand</span>
-        </summary>
-        <div className="border-t border-slate-100 p-3">
-        <div className="mb-3 flex items-end justify-between gap-4">
-          <div>
-            <h2 className="text-base font-black text-slate-950">Financial Summary</h2>
-            <p className="text-sm text-slate-500">Selected-period client revenue and collection performance.</p>
+              <p className="mt-1 text-xs font-medium text-slate-300">
+                {lastRefreshed ? `Updated ${lastRefreshed.toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}` : "Manage your client relationships"}
+              </p>
+            </div>
+            <div className="relative min-w-0 flex-1">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                placeholder="Search company, contact, phone or email"
+                aria-label="Search clients"
+                className="h-10 w-full rounded-xl border border-white/15 bg-white/10 pl-10 pr-4 text-xs text-white outline-none placeholder:text-slate-400 focus:border-sky-300 focus:bg-white/15 focus:ring-2 focus:ring-sky-300/30"
+              />
+            </div>
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <Link href="/crm/clients/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#E60046] px-4 text-xs font-black text-white shadow-lg shadow-rose-950/20 transition hover:-translate-y-0.5 hover:bg-rose-500">
+                <Plus className="h-3.5 w-3.5" /> Add New Client
+              </Link>
+            </div>
           </div>
-          <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold text-slate-500">Awaiting /api/reports/client-summary</span>
         </div>
-        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {financialMetrics.map((metric) => <FinancialMetricCard key={metric.label} metric={metric} />)}
-        </div>
-        </div>
-      </details>
 
-      {/* ── Filters ── */}
-      <div className="grid items-start gap-5">
-      <div className="min-w-0 space-y-4">
-      <div className="rounded-[22px] border border-slate-200 bg-white p-4 shadow-[0_14px_35px_rgba(15,23,42,0.05)]">
-        <div className="mb-2 flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-          <div>
+        <div className="rounded-b-2xl border border-t-0 border-slate-200 bg-white p-3">
+        <button type="button" onClick={() => setFiltersOpen((v) => !v)} className="flex w-full flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+          <div className="text-left">
             <h2 className="text-sm font-black text-slate-950">Find Your Clients</h2>
             <p className="text-xs text-slate-500">Quick filters to find and manage clients.</p>
           </div>
           <div className="flex items-center gap-2">
-            <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black text-[#0070B8]">{activeFilterCount} active</span>
+            {activeFilterCount > 0 && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black text-[#0070B8]">{activeFilterCount} active</span>}
             <p className="text-xs font-semibold text-slate-400">{pagination.total.toLocaleString("en-IN")} records</p>
+            {filtersOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
           </div>
-        </div>
+        </button>
 
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        {filtersOpen && (
+        <>
+        <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         <DateRangePicker from={fromDate} to={toDate} onChange={(from, to) => { setFromDate(from); setToDate(to); setPage(1); }} />
 
         <div className="relative">
@@ -724,8 +700,67 @@ function ClientsPageInner() {
             ].filter(Boolean).map((chip) => <span key={String(chip)} className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">{chip}</span>)}
           </div>
         )}
-      </div>
+        </>
+        )}
+        </div>
+      </section>
 
+      <section className="hidden grid-cols-2 gap-2 lg:grid-cols-3 xl:grid-cols-5">
+        {[
+          { label: "Healthy Accounts", value: healthyClients, icon: ShieldCheck, text: "Rule score 80–100 on this page", tone: "emerald", action: () => setHealthFilter("healthy") },
+          { label: "Needs Attention", value: atRiskClients, icon: AlertCircle, text: "Rule score below 60 on this page", tone: "red", action: () => setHealthFilter("attention") },
+          { label: "Profile Gaps", value: incompleteProfiles, icon: Clock3, text: "Missing email or phone details", tone: "amber", action: () => setProfileFilter("incomplete") },
+          { label: "Upsell Ready", value: null, icon: TrendingUp, text: "Revenue and engagement data required", tone: "sky", action: undefined },
+          { label: "Follow-ups Due", value: null, icon: CalendarDays, text: "Follow-up summary API required", tone: "amber", action: undefined },
+        ].map((insight) => {
+          const Icon = insight.icon;
+          const toneClass: Record<string, string> = {
+            emerald: "bg-emerald-50 text-emerald-700",
+            red: "bg-red-50 text-red-700",
+            amber: "bg-amber-50 text-amber-700",
+            sky: "bg-sky-50 text-[#0070B8]",
+          };
+
+          return (
+            <button type="button" onClick={insight.action} disabled={!insight.action} key={insight.label} className="group rounded-xl border border-slate-200 bg-white p-2.5 text-left shadow-sm transition enabled:hover:border-sky-200 disabled:cursor-default">
+              <div className="flex items-start gap-3">
+                <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${toneClass[insight.tone]}`}>
+                  <Icon className="h-4 w-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <p className={`text-2xl font-black tracking-tight ${insight.value === null ? "text-slate-400" : "text-slate-950"}`}>{insight.value === null ? "—" : insight.value}</p>
+                  </div>
+                  <p className="text-[11px] font-black text-slate-800">{insight.label}</p>
+                  <p className="hidden">{insight.text}</p>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </section>
+
+      <details className="hidden rounded-xl border border-slate-200 bg-white shadow-sm">
+        <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 text-xs font-bold text-slate-600">
+          Financial summary
+          <span className="text-[10px] font-medium text-slate-400">Reporting API required · click to expand</span>
+        </summary>
+        <div className="border-t border-slate-100 p-3">
+        <div className="mb-3 flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-base font-black text-slate-950">Financial Summary</h2>
+            <p className="text-sm text-slate-500">Selected-period client revenue and collection performance.</p>
+          </div>
+          <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-bold text-slate-500">Awaiting /api/reports/client-summary</span>
+        </div>
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+          {financialMetrics.map((metric) => <FinancialMetricCard key={metric.label} metric={metric} />)}
+        </div>
+        </div>
+      </details>
+
+      <div className="grid items-start gap-5">
+      <div className="min-w-0 space-y-4">
       {/* ── Table ── */}
       <div className="scroll-mt-4 overflow-hidden rounded-[24px] border border-slate-200 bg-white shadow-[0_18px_45px_rgba(15,23,42,0.06)]">
         <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

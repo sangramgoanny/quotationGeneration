@@ -152,6 +152,8 @@ export interface ClientFilters {
   search?:           string;
   status?:           string;
   stage?:            string;
+  leadStage?:        string;
+  leadSource?:       string;
   industry?:         string;
   type?:             string;
   accountManagerId?: string;
@@ -331,15 +333,21 @@ export const clientsApi = {
     return r.data;
   },
 
-  async uploadDocument(id: string, formData: FormData): Promise<ClientDocument> {
+  async uploadDocuments(id: string, files: File[], documentType = "Other"): Promise<ClientDocument[]> {
+    const fd = new FormData();
+    files.forEach((file) => fd.append("files", file));
+    fd.append("documentType", documentType);
     const res = await fetch(`${BASE}/api/clients/${id}/documents`, {
       method: "POST",
       headers: authHeader(),
-      body: formData,
+      body: fd,
     });
-    if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+    if (!res.ok) {
+      const body = await res.json().catch(() => null);
+      throw new Error(body?.message || `Upload failed: ${res.status}`);
+    }
     const r = await res.json();
-    return r.data as ClientDocument;
+    return r.data as ClientDocument[];
   },
 
   deleteDocument(id: string, docId: string): Promise<void> {
@@ -399,6 +407,14 @@ export const clientsApi = {
       description: item.description,
       createdAt: item.createdAt,
     }));
+  },
+
+  async sendEmail(id: string, payload: { to: string; cc?: string[]; subject: string; message: string }): Promise<{ sent: boolean; to: string }> {
+    const r = await request<{ success: boolean; data: { sent: boolean; to: string } }>(`/api/clients/${id}/email`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    return r.data;
   },
 };
 

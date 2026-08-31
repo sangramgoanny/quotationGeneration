@@ -4,12 +4,14 @@ import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertCircle, Building2, Calendar, CheckCircle, Edit,
-  Globe, Mail, MapPin, Phone, Tag, User, Users,
+  Activity as ActivityIcon, AlertCircle, Building2, Calendar, CheckCircle, Clock, Edit,
+  FileText, Globe, Mail, MapPin, Phone, Tag, User, Users,
 } from "lucide-react";
 import { leadsApi } from "@/lib/api/leads";
-import type { Client } from "@/types/client";
+import type { ActivityItem, Client, ClientDocument, DocumentType } from "@/types/client";
 import LeadQuotationSection from "@/components/leads/LeadQuotationSection";
+import { SendEmailModal } from "@/components/shared/SendEmailModal";
+import DocumentsPanel from "@/components/shared/DocumentsPanel";
 
 interface Props {
   leadId: string;
@@ -60,6 +62,42 @@ function formatDate(date?: string) {
   return new Date(date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
 }
 
+function formatDateTime(date?: string) {
+  if (!date) return "";
+  return new Date(date).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
+const isMailActivity = (action: string) => action.startsWith("Email");
+
+function ActivityTimeline({ items, emptyMessage }: { items: ActivityItem[]; emptyMessage: string }) {
+  if (!items.length) return <p className="text-xs text-slate-400">{emptyMessage}</p>;
+  return (
+    <div className="space-y-3">
+      {items.map((item, index) => (
+        <div key={item.id} className="flex gap-3">
+          <div className="flex flex-col items-center">
+            <div className="w-7 h-7 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 text-xs font-semibold shrink-0">
+              {(item.user || "S").charAt(0).toUpperCase()}
+            </div>
+            {index < items.length - 1 && <div className="w-px bg-slate-200 flex-1 my-1" />}
+          </div>
+          <div className="pb-3 flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="text-sm font-medium text-slate-800">{item.user}</span>
+              <span className="text-xs text-slate-500">{item.action}</span>
+              <span className="ml-auto text-xs text-slate-400 flex items-center gap-1 whitespace-nowrap">
+                <Clock className="w-3 h-3" />
+                {formatDateTime(item.createdAt)}
+              </span>
+            </div>
+            {item.description ? <p className="text-xs text-slate-600 mt-1">{item.description}</p> : null}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export default function LeadProfile({ leadId }: Props) {
   const router = useRouter();
   const [lead, setLead] = useState<Client | null>(null);
@@ -67,6 +105,11 @@ export default function LeadProfile({ leadId }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [converting, setConverting] = useState(false);
   const [triggerCreate, setTriggerCreate] = useState(false);
+  const [emailing, setEmailing] = useState(false);
+  const [documents, setDocuments] = useState<ClientDocument[] | null>(null);
+  const [documentsLoading, setDocumentsLoading] = useState(true);
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -85,6 +128,38 @@ export default function LeadProfile({ leadId }: Props) {
       isMounted = false;
     };
   }, [leadId]);
+
+  useEffect(() => {
+    let isMounted = true;
+    setDocumentsLoading(true);
+    leadsApi
+      .getDocuments(leadId)
+      .then((data) => {
+        if (isMounted) setDocuments(data);
+      })
+      .catch((e) => {
+        if (isMounted) setDocError(e instanceof Error ? e.message : "Failed to load documents");
+      })
+      .finally(() => {
+        if (isMounted) setDocumentsLoading(false);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, [leadId]);
+
+  const handleDocUpload = async (files: File[], documentType: DocumentType) => {
+    setDocUploading(true);
+    setDocError(null);
+    try {
+      const uploaded = await leadsApi.uploadDocuments(leadId, files, documentType);
+      setDocuments((prev) => [...uploaded, ...(prev ?? [])]);
+    } catch (e) {
+      setDocError(e instanceof Error ? e.message : "Failed to upload document");
+    } finally {
+      setDocUploading(false);
+    }
+  };
 
   if (loading) return <LoadingSpinner />;
 
@@ -139,6 +214,15 @@ export default function LeadProfile({ leadId }: Props) {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            {lead.primaryEmail && (
+              <button
+                type="button"
+                onClick={() => setEmailing(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 rounded-lg text-sm font-semibold hover:bg-slate-50"
+              >
+                <Mail className="w-4 h-4" /> Email
+              </button>
+            )}
             <button
               type="button"
               onClick={handleConvert}
@@ -222,12 +306,52 @@ export default function LeadProfile({ leadId }: Props) {
         </Section>
       </div>
 
+      <Section title="Documents" icon={FileText}>
+        <DocumentsPanel
+          documents={documents}
+          loading={documentsLoading}
+          uploading={docUploading}
+          error={docError}
+          onUpload={handleDocUpload}
+        />
+      </Section>
+
+      <Section title="Activity" icon={ActivityIcon}>
+        <ActivityTimeline
+          items={(lead.activities ?? []).filter((item) => !isMailActivity(item.action))}
+          emptyMessage="No activity recorded yet."
+        />
+      </Section>
+
+      <Section title="Mail Activity" icon={Mail}>
+        <ActivityTimeline
+          items={(lead.activities ?? []).filter((item) => isMailActivity(item.action))}
+          emptyMessage="No emails sent yet."
+        />
+      </Section>
+
       <LeadQuotationSection
         leadId={leadId}
         leadName={lead.companyName || "Client"}
         triggerCreate={triggerCreate}
         onCreateHandled={() => setTriggerCreate(false)}
       />
+      {emailing && (
+        <SendEmailModal
+          id={leadId}
+          title={lead.companyName || "Lead"}
+          defaultTo={lead.primaryEmail || lead.secondaryEmail || ""}
+          defaultSubject="Message from Goanny Ai Tech"
+          defaultMessage={`Dear ${lead.contactPersonName || lead.companyName || "there"},\n\n\n\nRegards,\nGoanny Ai Tech`}
+          lastEmail={lead.lastEmail}
+          emailHistory={lead.emailHistory}
+          onSend={async (payload) => {
+            await leadsApi.sendEmail(leadId, payload);
+            leadsApi.get(leadId).then(setLead).catch(() => {});
+          }}
+          onClose={() => setEmailing(false)}
+        />
+      )}
     </div>
   );
 }

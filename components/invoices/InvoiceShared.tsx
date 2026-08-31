@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { Download, Edit3, Loader2, Receipt, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { AlertCircle, CheckCircle2, Download, Edit3, Loader2, Mail, Receipt, Send, X } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
 import { clientsApi } from "@/lib/api/clients";
+import { activityApi } from "@/lib/api/activity";
 import type { CreateReceiptPayload, PaymentMode } from "@/lib/api/receipts";
+import { invoicesApi } from "@/lib/api/invoices";
 import type { Invoice, InvoiceStatus } from "@/types/invoice";
 
 const CURRENCY = process.env.NEXT_PUBLIC_CURRENCY ?? "INR";
@@ -35,7 +37,15 @@ export const date = (value?: string | null) =>
 
 export const statusLabel = (status: InvoiceStatus) => status.replaceAll("_", " ");
 
-export async function downloadInvoice(invoice: Invoice) {
+const longDate = (value?: string | null) =>
+  value
+    ? new Date(value).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" })
+    : "Not applicable";
+
+const dateTime = (value: string) =>
+  new Date(value).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+
+async function buildInvoicePdf(invoice: Invoice): Promise<jsPDF> {
   const doc = new jsPDF({ unit: "mm", format: "a4", compress: true });
   const image = new Image();
   image.src = "/letterhead.jpg";
@@ -244,7 +254,18 @@ export async function downloadInvoice(invoice: Invoice) {
     doc.setTextColor(100, 116, 139);
     doc.text(`${invoice.invoiceNumber} · Page ${page} of ${pageCount}`, right, 282, { align: "right" });
   }
+  return doc;
+}
+
+export async function downloadInvoice(invoice: Invoice) {
+  const doc = await buildInvoicePdf(invoice);
   doc.save(`${invoice.invoiceNumber}.pdf`);
+}
+
+export async function getInvoicePdfAttachment(invoice: Invoice): Promise<{ filename: string; base64: string }> {
+  const doc = await buildInvoicePdf(invoice);
+  const dataUri = doc.output("datauristring");
+  return { filename: `${invoice.invoiceNumber}.pdf`, base64: dataUri.slice(dataUri.indexOf(",") + 1) };
 }
 
 export function EditInvoiceModal({
@@ -345,6 +366,130 @@ export function AddReceiptModal({
   );
 }
 
+export function SendInvoiceEmailModal({
+  invoice,
+  onClose,
+}: {
+  invoice: Invoice;
+  onClose: () => void;
+}) {
+  const [to, setTo] = useState("");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState(`Invoice ${invoice.invoiceNumber} | Goanny Ai Tech`);
+  const [message, setMessage] = useState(
+    `Dear Sir/Madam,\n\nGreetings from Goanny AI Tech.\n\nWith regard to the attached invoice, please find the details of the billed amount for the services rendered.\n\nInvoice Number: ${invoice.invoiceNumber}\nInvoice Date: ${longDate(invoice.date)}\nDue Date: ${longDate(invoice.dueDate)}\nTotal Amount: ${money(invoice.amount)}\nBalance Due: ${money(invoice.due)}\n\nPlease review the attached invoice and process the payment at your earliest convenience. If you have any questions or require further clarification, please feel free to contact us.\n\nWe look forward to working with you.\n\nRegards,\nAccounts Team\nGoanny AI Tech\naccounts@goannyaitech.com\nwww.goannyaitech.com`,
+  );
+  const [loadingClient, setLoadingClient] = useState(true);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+  const [sent, setSent] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    if (!invoice.client?.id) { setLoadingClient(false); return; }
+    clientsApi.get(invoice.client.id)
+      .then((client) => { if (active) setTo(client.primaryEmail || client.secondaryEmail || ""); })
+      .catch(() => {})
+      .finally(() => { if (active) setLoadingClient(false); });
+    return () => { active = false; };
+  }, [invoice.client?.id]);
+
+  useEffect(() => {
+    if (!invoice.client?.id) return;
+    activityApi.create(invoice.client.id, "Email Started", `Opened send-email form for Invoice ${invoice.invoiceNumber}`).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleClose = () => {
+    if (!sent && invoice.client?.id) {
+      activityApi.create(invoice.client.id, "Email Closed", `Closed send-email form for Invoice ${invoice.invoiceNumber} without sending`).catch(() => {});
+    }
+    onClose();
+  };
+
+  const send = async () => {
+    if (!to.trim()) { setError("Recipient email is required"); return; }
+    setSending(true);
+    setError("");
+    try {
+      const { filename, base64 } = await getInvoicePdfAttachment(invoice);
+      await invoicesApi.sendEmail(invoice.id, {
+        to: to.trim(),
+        cc: cc.trim() ? cc.split(",").map((email) => email.trim()).filter(Boolean) : undefined,
+        subject,
+        message,
+        attachmentFilename: filename,
+        attachmentBase64: base64,
+      });
+      setSent(true);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Unable to send email");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const field = "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+
+  return (
+    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={handleClose}>
+      <div className="w-full max-w-lg rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div><p className="text-[10px] font-bold uppercase tracking-wide text-blue-600">Send by email</p><h2 className="mt-1 text-xl font-black text-slate-950">{invoice.invoiceNumber}</h2></div>
+          <button onClick={handleClose} className="rounded-xl p-2 text-slate-500 hover:bg-slate-100"><X className="h-5 w-5" /></button>
+        </div>
+        {sent ? (
+          <div className="flex flex-col items-center gap-3 p-10 text-center">
+            <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+            <p className="font-bold text-slate-800">Email sent to {to}</p>
+            <button onClick={onClose} className="mt-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-black text-white">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-4 p-6">
+              {invoice.emailHistory?.length ? (
+                <div className="rounded-xl bg-blue-50 p-3 text-xs text-blue-700">
+                  <p className="flex items-center gap-2 font-bold">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    Sent {invoice.emailHistory.length} time{invoice.emailHistory.length > 1 ? "s" : ""}
+                  </p>
+                  <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto">
+                    {invoice.emailHistory.map((entry, index) => (
+                      <li key={index} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{entry.to}</span>
+                        <span className="shrink-0 text-blue-500">{dateTime(entry.sentAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {error ? <div className="flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div> : null}
+              <label className="text-xs font-bold text-slate-600">To
+                <input type="email" value={to} onChange={(event) => setTo(event.target.value)} disabled={loadingClient} className={field} placeholder="client@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Cc <span className="font-normal text-slate-400">(optional, comma separated)</span>
+                <input value={cc} onChange={(event) => setCc(event.target.value)} className={field} placeholder="finance@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Subject
+                <input value={subject} onChange={(event) => setSubject(event.target.value)} className={field} />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Message
+                <textarea value={message} onChange={(event) => setMessage(event.target.value)} className="mt-1 min-h-32 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <button onClick={handleClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancel</button>
+              <button disabled={sending || loadingClient} onClick={() => void send()} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-black text-white disabled:opacity-60">
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {invoice.lastEmail ? "Resend Email" : "Send Email"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function InvoiceModal({
   invoice,
   loading,
@@ -354,6 +499,7 @@ export function InvoiceModal({
   loading: boolean;
   onClose: () => void;
 }) {
+  const [emailing, setEmailing] = useState(false);
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onClick={onClose}>
       <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-3xl bg-white shadow-2xl" onClick={(event) => event.stopPropagation()}>
@@ -441,12 +587,23 @@ export function InvoiceModal({
               <h3 className="text-xs font-black uppercase tracking-wide text-slate-500">Notes</h3>
               <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{invoice.notes || "No notes added."}</p>
             </section>
-            <button onClick={() => void downloadInvoice(invoice)} className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700">
-              <Download className="h-4 w-4" /> Download Invoice PDF
-            </button>
+            <div className="grid gap-2 sm:grid-cols-2">
+              <button onClick={() => void downloadInvoice(invoice)} className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-3 text-sm font-black text-white hover:bg-blue-700">
+                <Download className="h-4 w-4" /> Download Invoice PDF
+              </button>
+              <button onClick={() => setEmailing(true)} className="inline-flex items-center justify-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3 text-sm font-black text-blue-700 hover:bg-blue-100">
+                <Mail className="h-4 w-4" /> {invoice.lastEmail ? "Resend Email" : "Send by Email"}
+              </button>
+            </div>
+            {invoice.lastEmail ? (
+              <p className="text-center text-xs font-semibold text-slate-500">
+                Last sent to {invoice.lastEmail.to} on {dateTime(invoice.lastEmail.sentAt)}
+              </p>
+            ) : null}
           </div>
         )}
       </div>
+      {emailing && invoice ? <SendInvoiceEmailModal invoice={invoice} onClose={() => setEmailing(false)} /> : null}
     </div>
   );
 }

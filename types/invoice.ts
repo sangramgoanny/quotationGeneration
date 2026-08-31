@@ -21,6 +21,15 @@ export interface InvoiceReceipt {
   referenceNumber?: string | null;
   notes?: string | null;
   createdAt: string;
+  status?: "ACTIVE" | "VOID";
+  voidedAt?: string | null;
+  voidReason?: string | null;
+  voidedBy?: { id: string; name: string } | null;
+}
+
+export interface InvoiceLastEmail {
+  to: string;
+  sentAt: string;
 }
 
 export interface Invoice {
@@ -38,6 +47,8 @@ export interface Invoice {
   createdAt: string;
   client: InvoiceClient;
   receipts?: InvoiceReceipt[];
+  lastEmail?: InvoiceLastEmail | null;
+  emailHistory?: InvoiceLastEmail[];
 }
 
 export interface InvoiceListResponse {

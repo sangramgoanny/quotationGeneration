@@ -6,6 +6,15 @@ interface ApiEnvelope<T> {
   data: T;
 }
 
+export interface SendDocumentEmailPayload {
+  to?: string;
+  cc?: string[];
+  subject: string;
+  message?: string;
+  attachmentFilename: string;
+  attachmentBase64: string;
+}
+
 export interface CreateInvoicePayload {
   clientId: string;
   quotationId?: string | null;
@@ -40,12 +49,14 @@ export const invoicesApi = {
   async list(params: {
     clientId?: string;
     status?: InvoiceStatus | "";
+    search?: string;
     page?: number;
     limit?: number;
   } = {}): Promise<InvoiceListResponse> {
     const query = new URLSearchParams();
     if (params.clientId) query.set("clientId", params.clientId);
     if (params.status) query.set("status", params.status);
+    if (params.search) query.set("search", params.search);
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
     const suffix = query.size ? `?${query.toString()}` : "";
@@ -69,6 +80,14 @@ export const invoicesApi = {
       method: "PATCH",
       body: JSON.stringify(data),
     });
+    return unwrap(response);
+  },
+
+  async sendEmail(id: string, payload: SendDocumentEmailPayload): Promise<{ sent: boolean; to: string }> {
+    const response = await request<{ sent: boolean; to: string } | ApiEnvelope<{ sent: boolean; to: string }>>(
+      `/api/invoices/${id}/email`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
     return unwrap(response);
   },
 };

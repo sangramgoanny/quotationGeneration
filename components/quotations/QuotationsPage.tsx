@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import {
   Plus, Search, Filter, ChevronDown, Eye, FileText,
   RefreshCw, X, Calendar, IndianRupee, User, Hash, MapPin, Download, Pencil, ScrollText,
-  AlertCircle, Loader2, ReceiptText,
+  AlertCircle, Loader2, ReceiptText, Mail, Send, CheckCircle2, Clock, XCircle, LayoutGrid,
 } from "lucide-react";
 import { type QuotationRecord, type TimelinePhase, type TimelineUnit } from "@/lib/quotationStore";
 import {
@@ -16,6 +16,7 @@ import {
   type Quotation,
 } from "@/lib/api/quotations";
 import { clientsApi } from "@/lib/api/clients";
+import { activityApi } from "@/lib/api/activity";
 
 const TIMELINE_UNIT_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
 const API_TO_UNIT: Record<string, TimelineUnit> = { DAYS: "Days", WEEKS: "Weeks", MONTHS: "Months" };
@@ -50,6 +51,8 @@ export function apiToRecord(q: Quotation): QuotationRecord {
     timeline,
     paymentTerms:    (q.paymentTerms ?? []).map(t => t.term),
     termsConditions: (q.termsConditions ?? []).map(t => t.term),
+    lastEmail:       q.lastEmail,
+    emailHistory:    q.emailHistory,
   };
 }
 
@@ -86,13 +89,19 @@ function StatusSelect({ status, onChange, disabled }: { status: QuotationStatus;
 function fmt(d: string) {
   return d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" }) : "—";
 }
+function longDate(d?: string) {
+  return d ? new Date(d).toLocaleDateString("en-IN", { day: "2-digit", month: "long", year: "numeric" }) : "Not applicable";
+}
+function dateTime(d: string) {
+  return new Date(d).toLocaleString("en-IN", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
 function fmtAmt(n: number) {
   return new Intl.NumberFormat("en-IN", { style: "currency", currency: "INR", maximumFractionDigits: 0 }).format(n);
 }
 
 // ─── PDF Generator ───────────────────────────────────────────────────────────
 
-export async function downloadPDF(q: QuotationRecord) {
+async function buildQuotationPdf(q: QuotationRecord) {
   const { jsPDF } = await import("jspdf");
   const doc = new jsPDF({
     orientation: "p",
@@ -526,7 +535,18 @@ export async function downloadPDF(q: QuotationRecord) {
     doc.text(`Page ${i} of ${pages}`, 105, 288, { align: "center" });
   }
 
+  return doc;
+}
+
+export async function downloadPDF(q: QuotationRecord) {
+  const doc = await buildQuotationPdf(q);
   doc.save(`${q.quotationNumber.replace(/\//g, "-")}.pdf`);
+}
+
+export async function getQuotationPdfAttachment(q: QuotationRecord): Promise<{ filename: string; base64: string }> {
+  const doc = await buildQuotationPdf(q);
+  const dataUri = doc.output("datauristring");
+  return { filename: `${q.quotationNumber.replace(/\//g, "-")}.pdf`, base64: dataUri.slice(dataUri.indexOf(",") + 1) };
 }
 
 // ─── Agreement PDF ───────────────────────────────────────────────────────────
@@ -821,11 +841,12 @@ function SectionTitle({ n, children }: { n: number; children: React.ReactNode })
   );
 }
 
-function DetailModal({ q, onClose, onStatusChange, updatingStatus }: {
+function DetailModal({ q, onClose, onStatusChange, updatingStatus, onEmail }: {
   q: QuotationRecord;
   onClose: () => void;
   onStatusChange: (status: QuotationStatus) => void;
   updatingStatus: boolean;
+  onEmail: () => void;
 }) {
   const [downloading, setDownloading] = useState(false);
 
@@ -861,6 +882,14 @@ function DetailModal({ q, onClose, onStatusChange, updatingStatus }: {
             >
               {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
               Download PDF
+            </button>
+            <button
+              onClick={onEmail}
+              title="Send Quotation by Email"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-semibold transition-colors"
+            >
+              <Mail className="w-3.5 h-3.5" />
+              {q.lastEmail ? "Resend Email" : "Send Email"}
             </button>
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
               <X className="w-4 h-4" />
@@ -1050,6 +1079,158 @@ function DetailModal({ q, onClose, onStatusChange, updatingStatus }: {
   );
 }
 
+function SendQuotationEmailModal({ quotation, onClose, onSent }: { quotation: Quotation; onClose: () => void; onSent: (status: QuotationStatus) => void }) {
+  const [to, setTo] = useState(quotation.client?.primaryEmail ?? "");
+  const [cc, setCc] = useState("");
+  const [subject, setSubject] = useState(`Quotation ${quotation.quotationNumber} | Goanny Ai Tech`);
+  const [message, setMessage] = useState(
+    `Dear Sir/Madam,\n\nGreetings from Goanny AI Tech.\n\nWith regard to the attached quotation, please find our proposal for the requested services.\n\nQuotation Number: ${quotation.quotationNumber}\nQuotation Date: ${longDate(quotation.date)}\nTotal Amount: ${fmtAmt(Number(quotation.totalAmount) || 0)}\n\nPlease review the attached quotation. If you have any questions or require further clarification, please feel free to contact us.\n\nWe look forward to working with you.\n\nRegards,\nAccounts Team\nGoanny AI Tech\naccounts@goannyaitech.com\nwww.goannyaitech.com`,
+  );
+  const [sending, setSending] = useState(false);
+  const [error, setError]     = useState("");
+  const [sent, setSent]       = useState(false);
+
+  useEffect(() => {
+    if (!quotation.client?.id) return;
+    activityApi.create(quotation.client.id, "Email Started", `Opened send-email form for Quotation ${quotation.quotationNumber}`).catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleClose = () => {
+    if (!sent && quotation.client?.id) {
+      activityApi.create(quotation.client.id, "Email Closed", `Closed send-email form for Quotation ${quotation.quotationNumber} without sending`).catch(() => {});
+    }
+    onClose();
+  };
+
+  const send = async () => {
+    if (!to.trim()) { setError("Recipient email is required"); return; }
+    setSending(true);
+    setError("");
+    try {
+      const { filename, base64 } = await getQuotationPdfAttachment(apiToRecord(quotation));
+      const result = await quotationsApi.sendEmail(quotation.id, {
+        to: to.trim(),
+        cc: cc.trim() ? cc.split(",").map((e) => e.trim()).filter(Boolean) : undefined,
+        subject,
+        message,
+        attachmentFilename: filename,
+        attachmentBase64: base64,
+      });
+      setSent(true);
+      onSent(result.status);
+    } catch (sendError) {
+      setError(sendError instanceof Error ? sendError.message : "Unable to send email");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const field = "mt-1 h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100";
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={handleClose} />
+      <div className="relative w-full max-w-lg rounded-2xl bg-white shadow-2xl" style={{ fontFamily: "Helvetica, Arial, sans-serif" }}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-6 py-4">
+          <div><p className="text-[10px] font-bold uppercase tracking-wide" style={{ color: NAVY }}>Send by email</p><h2 className="mt-1 text-lg font-bold text-slate-900">{quotation.quotationNumber}</h2></div>
+          <button onClick={handleClose} className="rounded-lg p-1.5 text-slate-500 hover:bg-slate-100"><X className="w-4 h-4" /></button>
+        </div>
+        {sent ? (
+          <div className="flex flex-col items-center gap-3 p-10 text-center">
+            <CheckCircle2 className="h-10 w-10 text-emerald-500" />
+            <p className="font-bold text-slate-800">Email sent to {to}</p>
+            <button onClick={onClose} className="mt-2 rounded-xl bg-slate-900 px-5 py-2 text-sm font-black text-white">Done</button>
+          </div>
+        ) : (
+          <>
+            <div className="space-y-4 p-6">
+              {quotation.emailHistory?.length ? (
+                <div className="rounded-xl bg-blue-50 p-3 text-xs" style={{ color: NAVY }}>
+                  <p className="flex items-center gap-2 font-bold">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    Sent {quotation.emailHistory.length} time{quotation.emailHistory.length > 1 ? "s" : ""}
+                  </p>
+                  <ul className="mt-2 max-h-28 space-y-1 overflow-y-auto">
+                    {quotation.emailHistory.map((entry, index) => (
+                      <li key={index} className="flex items-center justify-between gap-2">
+                        <span className="truncate">{entry.to}</span>
+                        <span className="shrink-0 opacity-70">{dateTime(entry.sentAt)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+              {error ? <div className="flex items-center gap-2 rounded-xl bg-red-50 p-3 text-xs font-semibold text-red-700"><AlertCircle className="h-4 w-4 shrink-0" />{error}</div> : null}
+              <label className="text-xs font-bold text-slate-600">To
+                <input type="email" value={to} onChange={(e) => setTo(e.target.value)} className={field} placeholder="client@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Cc <span className="font-normal text-slate-400">(optional, comma separated)</span>
+                <input value={cc} onChange={(e) => setCc(e.target.value)} className={field} placeholder="sales@example.com" />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Subject
+                <input value={subject} onChange={(e) => setSubject(e.target.value)} className={field} />
+              </label>
+              <label className="text-xs font-bold text-slate-600">Message
+                <textarea value={message} onChange={(e) => setMessage(e.target.value)} className="mt-1 min-h-32 w-full rounded-xl border border-slate-200 p-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100" />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-6 py-4">
+              <button onClick={handleClose} className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-bold text-slate-600">Cancel</button>
+              <button disabled={sending} onClick={() => void send()} className="inline-flex items-center gap-2 rounded-xl px-5 py-2 text-sm font-black text-white disabled:opacity-60" style={{ backgroundColor: NAVY }}>
+                {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} {quotation.lastEmail ? "Resend Email" : "Send Email"}
+              </button>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Stat counters ──────────────────────────────────────────────────────────
+
+type StatTone = "blue" | "slate" | "sky" | "emerald" | "red" | "amber" | "indigo";
+
+const STAT_TONE_STYLES: Record<StatTone, { iconBg: string; iconText: string; ring: string; border: string; bar: string }> = {
+  blue:    { iconBg: "bg-blue-100",    iconText: "text-blue-600",    ring: "ring-blue-100",    border: "border-blue-300",    bar: "bg-blue-500" },
+  slate:   { iconBg: "bg-slate-100",   iconText: "text-slate-600",   ring: "ring-slate-200",   border: "border-slate-300",   bar: "bg-slate-500" },
+  sky:     { iconBg: "bg-sky-100",     iconText: "text-sky-600",     ring: "ring-sky-100",     border: "border-sky-300",     bar: "bg-sky-500" },
+  emerald: { iconBg: "bg-emerald-100", iconText: "text-emerald-600", ring: "ring-emerald-100", border: "border-emerald-300", bar: "bg-emerald-500" },
+  red:     { iconBg: "bg-red-100",     iconText: "text-red-600",     ring: "ring-red-100",     border: "border-red-300",     bar: "bg-red-500" },
+  amber:   { iconBg: "bg-amber-100",   iconText: "text-amber-600",   ring: "ring-amber-100",   border: "border-amber-300",   bar: "bg-amber-500" },
+  indigo:  { iconBg: "bg-indigo-100",  iconText: "text-indigo-600",  ring: "ring-indigo-100",  border: "border-indigo-300",  bar: "bg-indigo-500" },
+};
+
+function StatCard({
+  label, value, icon: Icon, tone, onClick, active,
+}: {
+  label: string; value: number | string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: StatTone; onClick?: () => void; active?: boolean;
+}) {
+  const s = STAT_TONE_STYLES[tone];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`group relative w-full text-left bg-white rounded-2xl p-3 flex items-center gap-2.5 overflow-hidden
+                  border shadow-sm transition-all duration-300
+                  ${active ? `${s.border} ring-4 ${s.ring} -translate-y-0.5 shadow-[0_24px_55px_rgba(37,99,235,0.14)]` : "border-slate-200 hover:border-sky-200 hover:shadow-[0_24px_55px_rgba(15,23,42,0.10)] hover:-translate-y-0.5"}`}
+    >
+      <div className={`absolute top-0 left-0 h-1 w-full ${s.bar} transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-70"}`} />
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${s.iconBg} ${s.iconText} transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`}>
+        <Icon className="w-4 h-4" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-lg font-black text-slate-950 leading-tight tracking-tight truncate">{value}</p>
+        <p className="text-[10px] font-semibold text-slate-500 truncate">{label}</p>
+      </div>
+      {active ? <span className={`w-2 h-2 rounded-full shrink-0 ${s.bar}`} /> : null}
+    </button>
+  );
+}
+
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function QuotationsPage() {
@@ -1062,8 +1243,12 @@ export default function QuotationsPage() {
   const [search, setSearch]         = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
 
+  // ── Unfiltered snapshot for the counter cards (independent of search/status filter) ──
+  const [allQuotations, setAllQuotations] = useState<QuotationListItem[]>([]);
+
   // ── Modal / action state ──
   const [selected, setSelected]       = useState<QuotationRecord | null>(null);
+  const [emailingQuotation, setEmailingQuotation] = useState<Quotation | null>(null);
   const [actionId, setActionId]       = useState<string | null>(null); // row being fetched
   const [updatingStatusId, setUpdatingStatusId] = useState<string | null>(null);
 
@@ -1090,6 +1275,31 @@ export default function QuotationsPage() {
 
   useEffect(() => { fetchList(); }, [fetchList]);
 
+  // ── Fetch unfiltered snapshot once, for the counter cards ──
+  const fetchCounts = useCallback(async () => {
+    try {
+      const res = await quotationsApi.list({ limit: 1000 });
+      setAllQuotations(res.data);
+    } catch {
+      // counters are non-critical — ignore failures here
+    }
+  }, []);
+
+  useEffect(() => { fetchCounts(); }, [fetchCounts]);
+
+  const counts = {
+    total:    allQuotations.length,
+    draft:    allQuotations.filter(q => q.status === "DRAFT").length,
+    sent:     allQuotations.filter(q => q.status === "SENT").length,
+    accepted: allQuotations.filter(q => q.status === "ACCEPTED").length,
+    rejected: allQuotations.filter(q => q.status === "REJECTED").length,
+    expired:  allQuotations.filter(q => q.status === "EXPIRED").length,
+    value:    allQuotations.reduce((sum, q) => sum + (Number(q.totalAmount) || 0), 0),
+  };
+
+  const toggleStatusFilter = (status: string) =>
+    setStatusFilter(prev => (prev === status ? "" : status));
+
   // ── Fetch full detail then run callback (view / download) ──
   const withFullDetail = async (id: string, cb: (r: QuotationRecord) => void) => {
     setActionId(id);
@@ -1112,6 +1322,17 @@ export default function QuotationsPage() {
   const handleDownload = (id: string) => withFullDetail(id, r => downloadPDF(r));
   const handleAgreement= (id: string) => withFullDetail(id, r => downloadAgreementPDF(r));
 
+  const handleEmail = async (id: string) => {
+    setActionId(id);
+    try {
+      setEmailingQuotation(await quotationsApi.get(id));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Failed to load quotation detail");
+    } finally {
+      setActionId(null);
+    }
+  };
+
   const handleStatusChange = async (id: string, status: QuotationStatus) => {
     setUpdatingStatusId(id);
     try {
@@ -1121,6 +1342,7 @@ export default function QuotationsPage() {
         await clientsApi.convertLeadToClient(quotation.clientId);
       }
       setQuotations(prev => prev.map(q => (q.id === id ? { ...q, status } : q)));
+      setAllQuotations(prev => prev.map(q => (q.id === id ? { ...q, status } : q)));
       setSelected(prev => (prev && prev.id === id ? { ...prev, status } : prev));
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to update status");
@@ -1150,6 +1372,17 @@ export default function QuotationsPage() {
           className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors">
           <Plus className="w-4 h-4" /> Create Quotation
         </Link>
+      </div>
+
+      {/* Counters */}
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
+        <StatCard label="Total Quotations" value={counts.total}    icon={LayoutGrid}  tone="blue"    onClick={() => setStatusFilter("")}              active={statusFilter === ""} />
+        <StatCard label="Draft"            value={counts.draft}    icon={Pencil}      tone="slate"   onClick={() => toggleStatusFilter("DRAFT")}      active={statusFilter === "DRAFT"} />
+        <StatCard label="Sent"             value={counts.sent}     icon={Send}        tone="sky"     onClick={() => toggleStatusFilter("SENT")}       active={statusFilter === "SENT"} />
+        <StatCard label="Accepted"         value={counts.accepted} icon={CheckCircle2} tone="emerald" onClick={() => toggleStatusFilter("ACCEPTED")}  active={statusFilter === "ACCEPTED"} />
+        <StatCard label="Rejected"         value={counts.rejected} icon={XCircle}     tone="red"     onClick={() => toggleStatusFilter("REJECTED")}   active={statusFilter === "REJECTED"} />
+        <StatCard label="Expired"          value={counts.expired}  icon={Clock}       tone="amber"   onClick={() => toggleStatusFilter("EXPIRED")}    active={statusFilter === "EXPIRED"} />
+        <StatCard label="Total Value"      value={fmtAmt(counts.value)} icon={IndianRupee} tone="indigo" />
       </div>
 
       {/* Filters */}
@@ -1253,6 +1486,10 @@ export default function QuotationsPage() {
                             className="p-1.5 rounded-lg text-violet-600 hover:bg-violet-50 transition-colors disabled:opacity-40">
                             <ScrollText className="w-4 h-4" />
                           </button>
+                          <button title="Send Quotation by Email" disabled={busy} onClick={() => handleEmail(q.id)}
+                            className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40">
+                            <Mail className="w-4 h-4" />
+                          </button>
                           {q.status === "ACCEPTED" && (
                             <button
                               title="Create Invoice"
@@ -1279,6 +1516,18 @@ export default function QuotationsPage() {
           onClose={() => setSelected(null)}
           onStatusChange={(s) => handleStatusChange(selected.id, s)}
           updatingStatus={updatingStatusId === selected.id}
+          onEmail={() => handleEmail(selected.id)}
+        />
+      )}
+      {emailingQuotation && (
+        <SendQuotationEmailModal
+          quotation={emailingQuotation}
+          onClose={() => setEmailingQuotation(null)}
+          onSent={(status) => {
+            setQuotations((prev) => prev.map((q) => (q.id === emailingQuotation.id ? { ...q, status } : q)));
+            setAllQuotations((prev) => prev.map((q) => (q.id === emailingQuotation.id ? { ...q, status } : q)));
+            setSelected((prev) => (prev && prev.id === emailingQuotation.id ? { ...prev, status } : prev));
+          }}
         />
       )}
     </div>

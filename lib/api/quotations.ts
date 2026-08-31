@@ -46,6 +46,11 @@ export interface QuotationListItem {
   createdAt:       string;
 }
 
+export interface QuotationLastEmail {
+  to:     string;
+  sentAt: string;
+}
+
 export interface Quotation {
   id:              string;
   quotationNumber: string;
@@ -76,6 +81,8 @@ export interface Quotation {
   createdById?:    string;
   createdAt:       string;
   updatedAt:       string;
+  lastEmail?:      QuotationLastEmail | null;
+  emailHistory?:   QuotationLastEmail[];
 }
 
 export interface CreateQuotationPayload {
@@ -101,6 +108,15 @@ export interface ActivityLog {
   description: string;
   meta?:       Record<string, string>;
   createdAt:   string;
+}
+
+export interface SendDocumentEmailPayload {
+  to?: string;
+  cc?: string[];
+  subject: string;
+  message?: string;
+  attachmentFilename: string;
+  attachmentBase64: string;
 }
 
 interface Res<T> { success: boolean; data: T }
@@ -197,5 +213,13 @@ export const quotationsApi = {
     const qs = p.toString();
     const r = await request<ActivityRes>(`/api/quotations/${id}/activity${qs ? `?${qs}` : ""}`);
     return { logs: r.data.logs, total: r.data.pagination.total };
+  },
+
+  async sendEmail(id: string, payload: SendDocumentEmailPayload): Promise<{ sent: boolean; to: string; status: QuotationStatus }> {
+    const r = await request<Res<{ sent: boolean; to: string; status: QuotationStatus }>>(`/api/quotations/${id}/email`, {
+      method: "POST",
+      body:   JSON.stringify(payload),
+    });
+    return r.data;
   },
 };

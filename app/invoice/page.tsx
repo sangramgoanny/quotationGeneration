@@ -13,6 +13,7 @@ import {
   Edit3,
   Eye,
   FileText,
+  Mail,
   Plus,
   Receipt,
   RefreshCw,
@@ -33,6 +34,7 @@ import {
   EditInvoiceModal,
   AddReceiptModal,
   InvoiceModal,
+  SendInvoiceEmailModal,
 } from "@/components/invoices/InvoiceShared";
 
 export default function InvoicesPage() {
@@ -41,12 +43,14 @@ export default function InvoicesPage() {
   const [error, setError] = useState("");
   const [status, setStatus] = useState<InvoiceStatus | "">("");
   const [search, setSearch] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [pagination, setPagination] = useState({ total: 0, pages: 1 });
   const [selected, setSelected] = useState<Invoice | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [editing, setEditing] = useState<Invoice | null>(null);
   const [receipting, setReceipting] = useState<Invoice | null>(null);
+  const [emailingInvoice, setEmailingInvoice] = useState<Invoice | null>(null);
   const [saving, setSaving] = useState(false);
   const [statusUpdatingId, setStatusUpdatingId] = useState("");
   const { can, loading: permissionsLoading } = usePermissions();
@@ -55,7 +59,7 @@ export default function InvoicesPage() {
     setLoading(true);
     setError("");
     try {
-      const result = await invoicesApi.list({ status, page, limit: 20 });
+      const result = await invoicesApi.list({ status, search: debouncedSearch || undefined, page, limit: 20 });
       setInvoices(result.invoices ?? []);
       setPagination({ total: result.pagination.total, pages: Math.max(1, result.pagination.pages) });
     } catch (loadError) {
@@ -63,19 +67,18 @@ export default function InvoicesPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, status]);
+  }, [page, status, debouncedSearch]);
 
   useEffect(() => { void load(); }, [load]);
 
-  const visibleInvoices = useMemo(() => {
-    const term = search.trim().toLowerCase();
-    if (!term) return invoices;
-    return invoices.filter((invoice) =>
-      (invoice.invoiceNumber ?? "").toLowerCase().includes(term) ||
-      invoice.client?.companyName?.toLowerCase().includes(term) ||
-      invoice.client?.clientCode?.toLowerCase().includes(term)
-    );
-  }, [invoices, search]);
+  // Debounce the search box so we don't hit the API on every keystroke, and
+  // search the full invoice list on the backend rather than just this page.
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search.trim()), 350);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  useEffect(() => { setPage(1); }, [debouncedSearch, status]);
 
   const totals = useMemo(() => ({
     amount: invoices.reduce((sum, invoice) => sum + Number(invoice.amount || 0), 0),
@@ -89,6 +92,7 @@ export default function InvoicesPage() {
   const selectCounter = (nextStatus: InvoiceStatus | "") => {
     setStatus(nextStatus);
     setSearch("");
+    setDebouncedSearch("");
     setPage(1);
   };
 
@@ -116,6 +120,14 @@ export default function InvoicesPage() {
       await downloadInvoice(await invoicesApi.get(invoice.id));
     } catch (downloadError) {
       setError(downloadError instanceof Error ? downloadError.message : "Unable to download invoice");
+    }
+  };
+
+  const openEmailModal = async (invoice: Invoice) => {
+    try {
+      setEmailingInvoice(await invoicesApi.get(invoice.id));
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Unable to load invoice");
     }
   };
 
@@ -250,7 +262,7 @@ export default function InvoicesPage() {
           <div className="flex items-center gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Invoice, client or code" className="h-9 w-60 rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
+              <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search invoice number, client name or code" className="h-9 w-64 rounded-xl border border-slate-200 bg-slate-50 pl-9 pr-3 text-xs outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100" />
             </div>
             <select value={status} onChange={(event) => { setStatus(event.target.value as InvoiceStatus | ""); setPage(1); }} className="h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold text-slate-600">
               <option value="">All status</option>
@@ -268,7 +280,7 @@ export default function InvoicesPage() {
             <tbody className="divide-y divide-slate-100">
               {loading ? Array.from({ length: 5 }).map((_, index) => (
                 <tr key={index}>{Array.from({ length: 9 }).map((__, cell) => <td className="px-4 py-4" key={cell}><div className="h-4 animate-pulse rounded bg-slate-100" /></td>)}</tr>
-              )) : visibleInvoices.length ? visibleInvoices.map((invoice) => (
+              )) : invoices.length ? invoices.map((invoice) => (
                 <tr key={invoice.id} className="hover:bg-blue-50/40">
                   <td className="px-4 py-3 font-black text-blue-700">{invoice.invoiceNumber || "—"}</td>
                   <td className="px-4 py-3"><p className="font-bold text-slate-800">{invoice.client?.companyName || "—"}</p><p className="text-[10px] text-slate-400">{invoice.client?.clientCode || "No client code"}</p></td>
@@ -299,9 +311,10 @@ export default function InvoicesPage() {
                     {can("invoices", "download") && (
                       <button onClick={() => void download(invoice)} title="Download invoice" className="rounded-lg p-2 text-emerald-600 hover:bg-emerald-50"><Download className="h-4 w-4" /></button>
                     )}
+                    <button onClick={() => void openEmailModal(invoice)} title="Send invoice by email" className="rounded-lg p-2 text-blue-600 hover:bg-blue-50"><Mail className="h-4 w-4" /></button>
                   </div></td>
                 </tr>
-              )) : <tr><td colSpan={9} className="py-16 text-center"><FileText className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 font-bold text-slate-700">No invoices found</p><p className="mt-1 text-xs text-slate-400">Create an invoice or change the selected filter.</p></td></tr>}
+              )) : <tr><td colSpan={9} className="py-16 text-center"><FileText className="mx-auto h-9 w-9 text-slate-300" /><p className="mt-3 font-bold text-slate-700">No invoices found</p><p className="mt-1 text-xs text-slate-400">{debouncedSearch ? `No invoices match "${debouncedSearch}".` : "Create an invoice or change the selected filter."}</p></td></tr>}
             </tbody>
           </table>
         </div>
@@ -316,6 +329,7 @@ export default function InvoicesPage() {
       {selected || detailLoading ? <InvoiceModal invoice={selected} loading={detailLoading} onClose={() => setSelected(null)} /> : null}
       {editing ? <EditInvoiceModal invoice={editing} saving={saving} onClose={() => setEditing(null)} onSave={saveEdit} /> : null}
       {receipting ? <AddReceiptModal invoice={receipting} saving={saving} onClose={() => setReceipting(null)} onSave={saveReceipt} /> : null}
+      {emailingInvoice ? <SendInvoiceEmailModal invoice={emailingInvoice} onClose={() => setEmailingInvoice(null)} /> : null}
     </div>
   );
 }

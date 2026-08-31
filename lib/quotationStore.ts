@@ -30,4 +30,6 @@ export interface QuotationRecord {
   paymentTerms: string[];
   termsConditions: string[];
   timeline?: TimelinePhase[];
+  lastEmail?: { to: string; sentAt: string } | null;
+  emailHistory?: { to: string; sentAt: string }[];
 }

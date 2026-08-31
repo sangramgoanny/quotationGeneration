@@ -13,6 +13,11 @@ export interface CreateReceiptPayload {
   notes?: string;
 }
 
+export interface ReceiptLastEmail {
+  to: string;
+  sentAt: string;
+}
+
 export interface ReceiptListItem extends InvoiceReceipt {
   invoiceId?: string;
   clientId?: string;
@@ -26,6 +31,8 @@ export interface ReceiptListItem extends InvoiceReceipt {
     companyName: string;
     clientCode?: string;
   } | null;
+  lastEmail?: ReceiptLastEmail | null;
+  emailHistory?: ReceiptLastEmail[];
 }
 
 export interface ReceiptListResponse {
@@ -43,9 +50,19 @@ interface ApiEnvelope<T> {
   data: T;
 }
 
+export interface SendDocumentEmailPayload {
+  to?: string;
+  cc?: string[];
+  subject: string;
+  message?: string;
+  attachmentFilename: string;
+  attachmentBase64: string;
+}
+
 export const receiptsApi = {
-  async list(params: { page?: number; limit?: number } = {}): Promise<ReceiptListResponse> {
+  async list(params: { search?: string; page?: number; limit?: number } = {}): Promise<ReceiptListResponse> {
     const query = new URLSearchParams();
+    if (params.search) query.set("search", params.search);
     if (params.page) query.set("page", String(params.page));
     if (params.limit) query.set("limit", String(params.limit));
     const suffix = query.size ? `?${query.toString()}` : "";
@@ -81,5 +98,25 @@ export const receiptsApi = {
     return typeof response === "object" && response !== null && "data" in response
       ? (response as ApiEnvelope<ReceiptListItem>).data
       : response as ReceiptListItem;
+  },
+
+  async void(id: string, reason: string): Promise<ReceiptListItem> {
+    const response = await request<ReceiptListItem | ApiEnvelope<ReceiptListItem>>(
+      `/api/receipts/${encodeURIComponent(id)}/void`,
+      { method: "PATCH", body: JSON.stringify({ reason }) },
+    );
+    return typeof response === "object" && response !== null && "data" in response
+      ? (response as ApiEnvelope<ReceiptListItem>).data
+      : response as ReceiptListItem;
+  },
+
+  async sendEmail(id: string, payload: SendDocumentEmailPayload): Promise<{ sent: boolean; to: string }> {
+    const response = await request<{ sent: boolean; to: string } | ApiEnvelope<{ sent: boolean; to: string }>>(
+      `/api/receipts/${encodeURIComponent(id)}/email`,
+      { method: "POST", body: JSON.stringify(payload) },
+    );
+    return typeof response === "object" && response !== null && "data" in response
+      ? (response as ApiEnvelope<{ sent: boolean; to: string }>).data
+      : response as { sent: boolean; to: string };
   },
 };

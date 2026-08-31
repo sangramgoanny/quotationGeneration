@@ -1,13 +1,15 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
-  AlertCircle, ArrowUpRight, Bell, Briefcase, Calendar, CheckCircle2, ChevronDown, Clock, Eye, FileText, Globe, Mail,
-  MapPin, MessageCircle, Phone, Plus, RefreshCw, Search, Target, Trash2, TrendingUp, UserCheck, UserPlus, X,
+  AlertCircle, ArrowUpRight, Bell, Briefcase, Calendar, CheckCircle2, ChevronDown, ChevronUp, Clock, Eye, FileText, Globe, Mail,
+  MapPin, MessageCircle, Phone, Plus, RefreshCw, Search, Target, Trash2, TrendingUp, Upload, UserCheck, UserPlus, X,
 } from "lucide-react";
-import type { Client, Industry, LeadSource } from "@/types/client";
+import type { Client, ClientDocument, DocumentType, Industry, LeadSource } from "@/types/client";
 import LeadQuotationSection from "@/components/leads/LeadQuotationSection";
+import DocumentsPanel from "@/components/shared/DocumentsPanel";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import { clientsApi } from "@/lib/api/clients";
 import { leadsApi } from "@/lib/api/leads";
@@ -106,6 +108,50 @@ type ActivityEntry = {
   createdAt: string;
 };
 
+const isMailActivity = (action: string) => action.startsWith("Email");
+
+function ActivityTimelineList({ items, emptyMessage }: { items: ActivityEntry[]; emptyMessage: string }) {
+  if (!items.length) {
+    return (
+      <div className="text-center py-6 text-slate-400">
+        <Bell className="w-7 h-7 mx-auto mb-2 opacity-25" />
+        <p className="text-xs">{emptyMessage}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="max-h-80 overflow-y-auto pr-1">
+      <div className="relative">
+        <div className="absolute left-[15px] top-2 bottom-2 w-px bg-slate-100" />
+        <div className="space-y-3">
+          {items.map((a, idx) => (
+            <div key={a.id} className="flex gap-3 relative">
+              <div className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 z-10 text-[10px] font-bold ${
+                idx === 0 ? "bg-indigo-600 text-white" : "bg-white border-2 border-slate-200 text-slate-400"
+              }`}>
+                {a.user.slice(0, 1).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0 pb-1">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <p className="text-xs font-semibold text-slate-800">{a.action}</p>
+                  <span className="text-[10px] text-slate-400 shrink-0">
+                    {new Date(a.createdAt).toLocaleString("en-IN", {
+                      day: "2-digit", month: "short", year: "numeric",
+                      hour: "2-digit", minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5 truncate">{a.description}</p>
+                <p className="text-[10px] text-indigo-500 mt-0.5 font-medium">{a.user}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 type LeadReminder = {
   id: string;
   type: "Call" | "Meeting" | "Follow-up";
@@ -141,20 +187,20 @@ function StatCard({
     <button
       type="button"
       onClick={onClick}
-      className={`group relative w-full text-left bg-white rounded-[20px] p-4 flex items-center gap-3 overflow-hidden
-                  border shadow-[0_18px_45px_rgba(15,23,42,0.06)] transition-all duration-300
+      className={`group relative w-full text-left bg-white rounded-2xl p-3 flex items-center gap-2.5 overflow-hidden
+                  border shadow-sm transition-all duration-300
                   ${active ? `${s.border} ring-4 ${s.ring} -translate-y-0.5 shadow-[0_24px_55px_rgba(37,99,235,0.14)]` : "border-slate-200 hover:border-sky-200 hover:shadow-[0_24px_55px_rgba(15,23,42,0.10)] hover:-translate-y-0.5"}`}
     >
       <div className={`absolute top-0 left-0 h-1 w-full ${s.bar} transition-opacity ${active ? "opacity-100" : "opacity-0 group-hover:opacity-70"}`} />
       <div className="pointer-events-none absolute -right-10 -top-12 h-24 w-24 rounded-full bg-sky-100/50 opacity-0 blur-2xl transition-opacity group-hover:opacity-100" />
 
-      <div className={`w-11 h-11 rounded-2xl flex items-center justify-center shrink-0 ${s.iconBg} ${s.iconText} transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`}>
-        <Icon className="w-5 h-5" />
+      <div className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 ${s.iconBg} ${s.iconText} transition-transform duration-300 group-hover:scale-110 group-hover:rotate-3`}>
+        <Icon className="w-4 h-4" />
       </div>
 
       <div className="min-w-0 flex-1">
-        <p className="text-2xl font-black text-slate-950 leading-tight tracking-tight">{value}</p>
-        <p className="text-xs font-semibold text-slate-500 truncate">{label}</p>
+        <p className="text-lg font-black text-slate-950 leading-tight tracking-tight">{value}</p>
+        <p className="text-[10px] font-semibold text-slate-500 truncate">{label}</p>
       </div>
 
       {external ? (
@@ -257,6 +303,10 @@ function mapApiLead(raw: Record<string, unknown>): LeadRecord {
     clientType:           (CLIENT_TYPE_FROM_API[s(raw.clientType).toUpperCase()] ?? "Company") as Client["clientType"],
     status:               (STATUS_FROM_API[s(raw.status).toUpperCase()] ?? "Lead") as Client["status"],
     leadStage,
+    priority: (s(raw.priority).toLowerCase().replace(/^./, (value) => value.toUpperCase()) || "Medium") as Client["priority"],
+    score: raw.score == null ? null : Number(raw.score),
+    nextAction: raw.nextAction == null ? null : s(raw.nextAction),
+    lostReason: raw.lostReason == null ? null : s(raw.lostReason),
     companyName:          s(raw.companyName ?? raw.company_name),
     contactPersonName:    s(raw.contactPersonName ?? raw.contact_person_name),
     designation:          s(raw.designation),
@@ -335,6 +385,10 @@ function mapApiLead(raw: Record<string, unknown>): LeadRecord {
 
 export default function LeadsPage() {
   const { currentUser, can } = useAuthRbac();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedLeadId = searchParams.get("open");
+  const returnTo = searchParams.get("returnTo");
   const canAssignLeads = can("leads", "ASSIGN") || can("leads", "REASSIGN");
   const [leads, setLeads] = useState<LeadRecord[]>([]);
   const [loading, setLoading] = useState(false);
@@ -345,10 +399,14 @@ export default function LeadsPage() {
   const [notesByLead, setNotesByLead] = useState<Record<string, LeadNote[]>>({});
   const [remindersByLead, setRemindersByLead] = useState<Record<string, LeadReminder[]>>({});
   const [activitiesByLead, setActivitiesByLead] = useState<Record<string, ActivityEntry[]>>({});
+  const [documentsByLead, setDocumentsByLead] = useState<Record<string, ClientDocument[]>>({});
+  const [docUploading, setDocUploading] = useState(false);
+  const [docError, setDocError] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState("");
   const [reminderType, setReminderType] = useState<LeadReminder["type"]>("Follow-up");
   const [reminderAt, setReminderAt] = useState("");
   const [reminderNote, setReminderNote] = useState("");
+  const [savingQualification, setSavingQualification] = useState(false);
 
   const [triggerCreateQuotation, setTriggerCreateQuotation] = useState(false);
   const [focusQuotationList, setFocusQuotationList] = useState(false);
@@ -365,22 +423,35 @@ export default function LeadsPage() {
   const [assignedFilter, setAssignedFilter] = useState("");
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
-  const [counterFilter, setCounterFilter] = useState<"" | "New" | "Hot" | "Warm" | "Cold" | "Won" | "Lost" | "QuotationSent" | "FollowUpToday" | "Total">("");
+  const [counterFilter, setCounterFilter] = useState<"" | "New" | "Hot" | "Warm" | "Cold" | "Won" | "Lost" | "QuotationSent" | "FollowUpToday" | "NeedsAction" | "Overdue" | "Unassigned" | "Total">("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(6);
   const [sortBy, setSortBy] = useState<LeadSort>("newest");
   const [showMoreMetrics, setShowMoreMetrics] = useState(false);
+  const openedQueryLead = useRef<string | null>(null);
+  const openingFromPipeline = Boolean(requestedLeadId) && !selectedLead && openedQueryLead.current !== requestedLeadId;
+  const closeLead = useCallback(() => {
+    setSelectedLead(null);
+    if (returnTo === "/crm/follow-ups" || returnTo === "/crm/pipeline") {
+      router.push(returnTo);
+    }
+  }, [returnTo, router]);
+
+  // Leads with at least one reminder (of any type — Follow-up, Call, Meeting) due today.
+  // A lead counts once even if it has multiple reminders due today.
+  const todayFollowUpLeadIds = useMemo(() => {
+    const today = new Date().toDateString();
+    return new Set(
+      Object.entries(remindersByLead)
+        .filter(([, rs]) => rs.some((r) => new Date(r.scheduledAt).toDateString() === today))
+        .map(([id]) => id)
+    );
+  }, [remindersByLead]);
 
   const visibleLeads = useMemo(() => {
     const q = search.trim().toLowerCase();
-    const today = new Date().toDateString();
-    const followUpLeadIds = counterFilter === "FollowUpToday"
-      ? new Set(
-          Object.entries(remindersByLead)
-            .filter(([, rs]) => rs.some((r) => new Date(r.scheduledAt).toDateString() === today))
-            .map(([id]) => id)
-        )
-      : null;
+    const followUpLeadIds = counterFilter === "FollowUpToday" ? todayFollowUpLeadIds : null;
 
     const fromTs = fromDate ? new Date(fromDate).getTime() : null;
     const toTs = toDate ? new Date(toDate).getTime() + 24 * 60 * 60 * 1000 - 1 : null;
@@ -396,6 +467,9 @@ export default function LeadsPage() {
       // Counter card filter (overrides other stage/tag filters)
       if (counterFilter === "Total") return true;
       if (counterFilter === "FollowUpToday") return followUpLeadIds!.has(lead.id ?? "");
+      if (counterFilter === "NeedsAction") return !lead.nextFollowUpDate;
+      if (counterFilter === "Overdue") return Boolean(lead.nextFollowUpDate && new Date(lead.nextFollowUpDate).getTime() < Date.now());
+      if (counterFilter === "Unassigned") return !lead.accountManager;
       if (counterFilter === "New")   return lead.leadStage === "New";
       if (counterFilter === "Hot")   return lead.leadStage === "Hot";
       if (counterFilter === "Warm")  return lead.leadStage === "Warm";
@@ -416,7 +490,7 @@ export default function LeadsPage() {
         lead.primaryEmail, lead.mobile, lead.industry, lead.leadSource, lead.leadStage,
       ].some((value) => String(value ?? "").toLowerCase().includes(q));
     });
-  }, [leads, search, industry, source, stageFilter, tagFilter, assignedFilter, fromDate, toDate, counterFilter, remindersByLead]);
+  }, [leads, search, industry, source, stageFilter, tagFilter, assignedFilter, fromDate, toDate, counterFilter, todayFollowUpLeadIds]);
 
   const sortedLeads = useMemo(() => {
     return [...visibleLeads].sort((a, b) => {
@@ -450,6 +524,18 @@ export default function LeadsPage() {
     setPage((currentPage) => Math.min(currentPage, totalPages));
   }, [totalPages]);
 
+  useEffect(() => {
+    const openId = requestedLeadId;
+    if (!openId || selectedLead || loading || openedQueryLead.current === openId) return;
+    const lead = leads.find((item) => item.id === openId);
+    if (lead) {
+      openedQueryLead.current = openId;
+      openLead(lead);
+    }
+    // openLead intentionally remains out of dependencies because it is a popup action recreated on render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [requestedLeadId, leads, selectedLead, loading]);
+
   // Reset to page 1 whenever filters change
   const setSearch2 = (v: string) => { setSearch(v); setCounterFilter(""); setPage(1); };
   const setIndustry2 = (v: string) => { setIndustry(v); setCounterFilter(""); setPage(1); };
@@ -470,9 +556,7 @@ export default function LeadsPage() {
     setLoading(true);
     try {
       const result = await leadsApi.list({ limit: 200 });
-      console.log("[fetchLeads] raw API response:", JSON.stringify(result.data, null, 2));
       const mapped = (result.data as unknown as Record<string, unknown>[]).map(mapApiLead);
-      console.log("[fetchLeads] mapped leads:", JSON.stringify(mapped, null, 2));
       setLeads(mapped);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load leads");
@@ -488,7 +572,40 @@ export default function LeadsPage() {
     } catch { /* keep the dropdown usable with Unassigned only */ }
   };
 
-  useEffect(() => { fetchLeads(); fetchAssignableUsers(); }, []);
+  const fetchTodayReminders = async () => {
+    try {
+      const grouped: Record<string, LeadReminder[]> = {};
+      let page = 1;
+      let pages = 1;
+      do {
+        const res = await remindersApi.globalList({ status: "DUE_TODAY", page, limit: 200 });
+        for (const r of res.data) {
+          const clientId = r.clientId ?? r.client?.id;
+          if (!clientId) continue;
+          (grouped[clientId] ??= []).push({
+            id: r.id,
+            type: (REMINDER_TYPE_FROM_API[r.type] ?? r.type) as LeadReminder["type"],
+            title: r.title,
+            scheduledAt: r.scheduledAt,
+            note: r.note,
+            isDone: r.isDone,
+          });
+        }
+        pages = res.pages || 1;
+        page += 1;
+      } while (page <= pages);
+      // Merge without clobbering full reminder lists already loaded for opened leads.
+      setRemindersByLead((prev) => {
+        const next = { ...prev };
+        for (const [clientId, reminders] of Object.entries(grouped)) {
+          if (!next[clientId]) next[clientId] = reminders;
+        }
+        return next;
+      });
+    } catch { /* counter simply reflects opened leads if this fails */ }
+  };
+
+  useEffect(() => { fetchLeads(); fetchAssignableUsers(); fetchTodayReminders(); }, []);
 
   const handleConvert = async (lead: LeadRecord) => {
     if (!lead.id) return;
@@ -507,10 +624,10 @@ export default function LeadsPage() {
   };
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setSelectedLead(null); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") closeLead(); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [closeLead]);
 
   const openLead = (lead: LeadRecord, options?: { focusQuotations?: boolean }) => {
     setSelectedLead(lead); // show popup immediately with list data
@@ -569,6 +686,27 @@ export default function LeadsPage() {
             })),
           }));
       }).catch(() => {});
+
+      // Fetch documents from API
+      setDocError(null);
+      leadsApi.getDocuments(lead.id).then((docs) => {
+        setDocumentsByLead((prev) => ({ ...prev, [lead.id!]: docs }));
+      }).catch(() => {});
+    }
+  };
+
+  const handlePopupDocUpload = async (files: File[], documentType: DocumentType) => {
+    if (!selectedLead?.id) return;
+    const leadId = selectedLead.id;
+    setDocUploading(true);
+    setDocError(null);
+    try {
+      const uploaded = await leadsApi.uploadDocuments(leadId, files, documentType);
+      setDocumentsByLead((prev) => ({ ...prev, [leadId]: [...uploaded, ...(prev[leadId] ?? [])] }));
+    } catch (e) {
+      setDocError(e instanceof Error ? e.message : "Failed to upload document");
+    } finally {
+      setDocUploading(false);
     }
   };
 
@@ -651,6 +789,20 @@ export default function LeadsPage() {
       setSelectedLead((prev) => prev?.id === leadId ? { ...prev, leadStage } : prev);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Failed to update lead stage");
+    }
+  };
+
+  const updateLeadQualification = async (leadId: string, patch: { priority?: "LOW" | "MEDIUM" | "HIGH"; score?: number; nextAction?: string | null; lostReason?: string | null }) => {
+    setSavingQualification(true);
+    try {
+      const updated = await leadsApi.updateQualification(leadId, patch);
+      const mapped = mapApiLead(updated as unknown as Record<string, unknown>);
+      setLeads((prev) => prev.map((lead) => lead.id === leadId ? { ...lead, ...mapped } : lead));
+      setSelectedLead((prev) => prev?.id === leadId ? { ...prev, ...mapped } : prev);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to update lead qualification");
+    } finally {
+      setSavingQualification(false);
     }
   };
 
@@ -750,6 +902,7 @@ export default function LeadsPage() {
   const selectedLeadNotes = selectedLead?.id ? notesByLead[selectedLead.id] ?? [] : [];
   const selectedLeadReminders = selectedLead?.id ? remindersByLead[selectedLead.id] ?? [] : [];
   const selectedLeadActivities = selectedLead?.id ? activitiesByLead[selectedLead.id] ?? [] : [];
+  const selectedLeadDocuments = selectedLead?.id ? documentsByLead[selectedLead.id] ?? [] : [];
   const selectedRequirementCount = selectedLead
     ? selectedLead.developmentServices.length + selectedLead.digitalMarketingServices.length
     : 0;
@@ -768,56 +921,61 @@ export default function LeadsPage() {
   const coldLeads      = useMemo(() => allLeads.filter((l) => l.leadStage === "Cold").length, [allLeads]);
   const lostLeads      = useMemo(() => allLeads.filter((l) => l.leadStage === "Lost").length, [allLeads]);
   const quotationSentLeads = useMemo(() => allLeads.filter((l) => l.leadStage === "Quotation Sent").length, [allLeads]);
-  const remindersToday = useMemo(() => {
-    const today = new Date().toDateString();
-    return Object.values(remindersByLead)
-      .flat()
-      .filter((r) => new Date(r.scheduledAt).toDateString() === today)
-      .length;
-  }, [remindersByLead]);
+  // Counts leads with a reminder due today, not raw reminder rows — a lead with both a
+  // Call and a Follow-up reminder due today still counts once.
+  const remindersToday = todayFollowUpLeadIds.size;
+  const overdueLeads = useMemo(
+    () => allLeads.filter((lead) => lead.nextFollowUpDate && new Date(lead.nextFollowUpDate).getTime() < Date.now()).length,
+    [allLeads],
+  );
+  const needsActionLeads = useMemo(() => allLeads.filter((lead) => !lead.nextFollowUpDate).length, [allLeads]);
+  const unassignedLeads = useMemo(() => allLeads.filter((lead) => !lead.accountManager).length, [allLeads]);
 
   return (
-    <main className="min-h-screen bg-[#F6F8FB] p-4 space-y-6 lg:p-6">
-      <section className="relative overflow-hidden rounded-[18px] bg-[#0b3b5a] px-4 py-3 shadow-[0_12px_32px_rgba(15,23,42,0.12)] lg:px-5">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_90%_0%,rgba(230,0,70,0.22),transparent_30%)]" />
-        <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
-          <div className="shrink-0">
-            <p className="text-[10px] font-black uppercase tracking-[0.16em] text-sky-100">CRM / Leads</p>
-            <h1 className="mt-0.5 text-xl font-black tracking-tight text-white">Leads</h1>
-            <p className="text-[11px] text-slate-200">Manage prospects before conversion.</p>
-          </div>
-          <div className="relative flex-1 lg:ml-4">
-            <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input value={search} onChange={(e) => setSearch2(e.target.value)} placeholder="Search company, contact, phone or email" className="h-10 w-full rounded-xl border border-white/10 bg-white/95 pl-10 pr-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:ring-4 focus:ring-sky-200/30" />
-          </div>
-          <div className="flex shrink-0 gap-2">
-            <button type="button" onClick={fetchLeads} className="inline-flex h-10 items-center gap-2 rounded-xl border border-white/15 bg-white/10 px-3.5 text-xs font-bold text-white transition hover:bg-white/20"><RefreshCw className="h-3.5 w-3.5" /> Refresh</button>
-            <Link href="/crm/leads/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-3.5 text-xs font-black text-[#063A66]"><Plus className="h-3.5 w-3.5" /> Add Lead</Link>
-          </div>
-        </div>
-      </section>
-
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+    <>
+    <main className={`min-h-screen bg-[#F6F8FB] p-4 space-y-6 lg:p-6 ${openingFromPipeline ? "invisible" : ""}`}>
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-8">
         <StatCard label="Total Leads"     value={totalLeads}         icon={Target}      tone="blue"    onClick={() => toggleCounter("Total")}         active={counterFilter === "Total"} />
         <StatCard label="New Leads"       value={newLeads}           icon={UserPlus}    tone="indigo"  onClick={() => toggleCounter("New")}           active={counterFilter === "New"} />
         <StatCard label="Reminders Today" value={remindersToday}     icon={Clock}       tone="amber"   onClick={() => toggleCounter("FollowUpToday")} active={counterFilter === "FollowUpToday"} />
         <StatCard label="Hot Leads"       value={hotLeads}           icon={TrendingUp}  tone="red"     onClick={() => toggleCounter("Hot")}           active={counterFilter === "Hot"} />
         <StatCard label="Won Leads"       value={allLeads.filter((lead) => lead.leadStage === "Won").length} icon={UserCheck} tone="emerald" onClick={() => toggleCounter("Won")} active={counterFilter === "Won"} />
         <StatCard label="Quotation Sent"  value={quotationSentLeads} icon={FileText}    tone="violet"  onClick={() => toggleCounter("QuotationSent")} active={counterFilter === "QuotationSent"} />
+        <StatCard label="Overdue Follow-ups" value={overdueLeads} icon={AlertCircle} tone="red" onClick={() => toggleCounter("Overdue")} active={counterFilter === "Overdue"} />
+        <StatCard label="Needs Next Action" value={needsActionLeads} icon={Clock} tone="zinc" onClick={() => toggleCounter("NeedsAction")} active={counterFilter === "NeedsAction"} />
       </div>
 
-      <section className="rounded-[18px] border border-slate-200 bg-white p-3 shadow-[0_12px_32px_rgba(15,23,42,0.08)] lg:p-4">
-        <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <h2 className="text-base font-black text-slate-950">Lead Directory</h2>
-            <p className="text-xs text-slate-500">Filter and manage your prospects.</p>
-          </div>
-          <div className="text-xs font-semibold text-slate-400">
-            {visibleLeads.length} visible of {totalLeads} leads
+      <section className="rounded-[18px] shadow-[0_12px_32px_rgba(15,23,42,0.12)]">
+        <div className="relative overflow-hidden rounded-t-[18px] bg-[#0b3b5a] px-4 py-2.5 lg:px-5">
+          <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_90%_0%,rgba(230,0,70,0.22),transparent_30%)]" />
+          <div className="relative flex flex-col gap-3 lg:flex-row lg:items-center">
+            <div className="shrink-0">
+              <p className="text-[10px] font-black uppercase tracking-[0.16em] text-sky-100">CRM / Leads</p>
+              <h1 className="mt-0.5 text-xl font-black tracking-tight text-white">Leads</h1>
+              <p className="text-[11px] text-slate-200">Manage prospects before conversion.</p>
+            </div>
+            <div className="relative flex-1 lg:ml-4">
+              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+              <input value={search} onChange={(e) => setSearch2(e.target.value)} placeholder="Search company, contact, phone or email" className="h-10 w-full rounded-xl border border-white/10 bg-white/95 pl-10 pr-3 text-sm text-slate-700 outline-none placeholder:text-slate-400 focus:ring-4 focus:ring-sky-200/30" />
+            </div>
+            <div className="flex shrink-0 gap-2">
+              <Link href="/crm/leads/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-white px-3.5 text-xs font-black text-[#063A66]"><Plus className="h-3.5 w-3.5" /> Add Lead</Link>
+            </div>
           </div>
         </div>
 
-        <div className="grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="rounded-b-[18px] border border-t-0 border-slate-200 bg-white p-3 lg:p-4">
+        <button type="button" onClick={() => setFiltersOpen((v) => !v)} className="flex w-full items-center justify-end gap-2">
+          {activeFilterCount > 0 && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-black text-[#0070B8]">{activeFilterCount} active</span>}
+          <span className="text-xs font-semibold text-slate-400">
+            {visibleLeads.length} visible of {totalLeads} leads
+          </span>
+          {filtersOpen ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+        </button>
+
+        {filtersOpen && (
+        <>
+        <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
           <DateRangePicker
             from={fromDate}
             to={toDate}
@@ -926,13 +1084,14 @@ export default function LeadsPage() {
               <button type="button" onClick={() => toggleCounter("Warm")} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${counterFilter === "Warm" ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-600"}`}>Warm {warmLeads}</button>
               <button type="button" onClick={() => toggleCounter("Cold")} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${counterFilter === "Cold" ? "bg-cyan-100 text-cyan-700" : "bg-slate-100 text-slate-600"}`}>Cold {coldLeads}</button>
               <button type="button" onClick={() => toggleCounter("Lost")} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${counterFilter === "Lost" ? "bg-zinc-200 text-zinc-700" : "bg-slate-100 text-slate-600"}`}>Lost {lostLeads}</button>
+              <button type="button" onClick={() => toggleCounter("Unassigned")} className={`rounded-full px-2.5 py-1 text-[11px] font-bold ${counterFilter === "Unassigned" ? "bg-red-100 text-red-700" : "bg-slate-100 text-slate-600"}`}>Unassigned {unassignedLeads}</button>
             </>
           )}
         </div>
         {hasActiveFilters && (
           <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3" aria-label="Active filters">
             <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Active</span>
-            {counterFilter && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">View: {counterFilter === "FollowUpToday" ? "Reminders today" : counterFilter}</span>}
+            {counterFilter && <span className="rounded-full bg-sky-50 px-2.5 py-1 text-xs font-semibold text-sky-700">View: {counterFilter === "FollowUpToday" ? "Reminders today" : counterFilter === "NeedsAction" ? "Needs next action" : counterFilter}</span>}
             {search && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Search: {search}</span>}
             {industry && <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">Industry: {industry}</span>}
             {stageFilter && <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-700">Stage: {stageFilter}</span>}
@@ -942,6 +1101,9 @@ export default function LeadsPage() {
             {(fromDate || toDate) && <span className="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">Created: {fromDate || "Any"} – {toDate || "Any"}</span>}
           </div>
         )}
+        </>
+        )}
+        </div>
       </section>
 
       {error ? (
@@ -983,6 +1145,7 @@ export default function LeadsPage() {
             const initials = (lead.companyName || lead.contactPersonName || "LD").slice(0, 2).toUpperCase();
             const reqCount = lead.developmentServices.length + lead.digitalMarketingServices.length;
             const stageColor = LEAD_STAGE_COLORS[lead.leadStage];
+            const isOverdue = Boolean(lead.nextFollowUpDate && new Date(lead.nextFollowUpDate).getTime() < Date.now());
 
             return (
               <article
@@ -1018,9 +1181,11 @@ export default function LeadsPage() {
                           {[lead.contactPersonName, lead.designation].filter(Boolean).join(" · ") || "Contact pending"}
                         </p>
                       </div>
-                      <span className={`flex-shrink-0 rounded-lg px-3 py-1 text-xs font-bold whitespace-nowrap ${stageColor}`}>
-                        {lead.leadStage}
-                      </span>
+                      <div className="flex flex-shrink-0 flex-wrap justify-end gap-1.5">
+                        <span className={`rounded-lg px-3 py-1 text-xs font-bold whitespace-nowrap ${stageColor}`}>{lead.leadStage}</span>
+                        {isOverdue && <span className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2 py-1 text-[10px] font-bold text-red-700"><AlertCircle className="h-3 w-3" /> Overdue</span>}
+                        {!lead.nextFollowUpDate && <span className="inline-flex items-center gap-1 rounded-lg bg-amber-50 px-2 py-1 text-[10px] font-bold text-amber-700"><Clock className="h-3 w-3" /> Next action</span>}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1069,6 +1234,18 @@ export default function LeadsPage() {
 
                 {/* Metadata Tags */}
                 <div className="px-5 py-3 flex flex-wrap gap-2">
+                  <span className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-bold ${
+                    lead.priority === "High" ? "border border-red-200 bg-red-50 text-red-700" :
+                    lead.priority === "Low" ? "border border-slate-200 bg-slate-50 text-slate-600" :
+                    "border border-amber-200 bg-amber-50 text-amber-700"
+                  }`}>
+                    {lead.priority || "Medium"} priority
+                  </span>
+                  {typeof lead.score === "number" && (
+                    <span className="inline-flex items-center gap-1.5 rounded-lg border border-sky-100 bg-sky-50 px-2.5 py-1 text-xs font-bold text-sky-700">
+                      Score {lead.score}/100
+                    </span>
+                  )}
                   {lead.industry && (
                     <span className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1 text-xs font-medium text-indigo-700 border border-indigo-100">
                       {lead.industry}
@@ -1214,7 +1391,7 @@ export default function LeadsPage() {
 
       {selectedLead && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/70 p-3 backdrop-blur-sm"
-          onClick={() => setSelectedLead(null)}>
+          onClick={closeLead}>
           <section className="flex max-h-[94vh] w-full max-w-6xl flex-col overflow-hidden rounded-[28px] bg-white shadow-[0_30px_90px_rgba(15,23,42,0.35)] ring-1 ring-white/40"
             onClick={(e) => e.stopPropagation()}>
 
@@ -1248,7 +1425,7 @@ export default function LeadsPage() {
                   className="inline-flex items-center gap-1.5 rounded-2xl bg-white px-3 py-2 text-xs font-bold text-[#0070B8] transition hover:-translate-y-0.5 hover:bg-sky-50 disabled:opacity-50">
                   <UserCheck className="w-3.5 h-3.5" /> Convert
                 </button>
-                <button type="button" onClick={() => setSelectedLead(null)}
+                <button type="button" onClick={closeLead}
                   className="rounded-2xl bg-white/10 p-2 text-white transition hover:bg-white/20">
                   <X className="w-4 h-4" />
                 </button>
@@ -1345,6 +1522,57 @@ export default function LeadsPage() {
                         </div>
                       )}
                     </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                    <div className="mb-3 flex items-center justify-between">
+                      <div>
+                        <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Qualification</p>
+                        <p className="mt-0.5 text-xs text-slate-500">Keep the next sales action explicit.</p>
+                      </div>
+                      {savingQualification && <span className="text-[10px] font-bold text-sky-600">Saving…</span>}
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <label className="text-xs font-semibold text-slate-600">
+                        Priority
+                        <select
+                          value={selectedLead.priority || "Medium"}
+                          onChange={(event) => selectedLead.id && updateLeadQualification(selectedLead.id, { priority: event.target.value.toUpperCase() as "LOW" | "MEDIUM" | "HIGH" })}
+                          className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold outline-none focus:border-sky-400"
+                        >
+                          <option>Low</option><option>Medium</option><option>High</option>
+                        </select>
+                      </label>
+                      <label className="text-xs font-semibold text-slate-600">
+                        Lead score
+                        <input
+                          type="number" min={0} max={100} defaultValue={selectedLead.score ?? ""}
+                          onBlur={(event) => {
+                            const score = Number(event.target.value);
+                            if (selectedLead.id && Number.isInteger(score) && score >= 0 && score <= 100) void updateLeadQualification(selectedLead.id, { score });
+                          }}
+                          className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold outline-none focus:border-sky-400"
+                        />
+                      </label>
+                      <label className="text-xs font-semibold text-slate-600 sm:col-span-1">
+                        Next action
+                        <input
+                          type="text" defaultValue={selectedLead.nextAction || ""} placeholder="e.g. Schedule demo"
+                          onBlur={(event) => selectedLead.id && void updateLeadQualification(selectedLead.id, { nextAction: event.target.value.trim() || null })}
+                          className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold outline-none focus:border-sky-400"
+                        />
+                      </label>
+                    </div>
+                    {selectedLead.leadStage === "Lost" && (
+                      <label className="mt-3 block text-xs font-semibold text-slate-600">
+                        Lost reason
+                        <input
+                          type="text" defaultValue={selectedLead.lostReason || ""} placeholder="Why was this opportunity lost?"
+                          onBlur={(event) => selectedLead.id && void updateLeadQualification(selectedLead.id, { lostReason: event.target.value.trim() || null })}
+                          className="mt-1.5 h-9 w-full rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold outline-none focus:border-sky-400"
+                        />
+                      </label>
+                    )}
                   </div>
 
                   {/* Written Requirement */}
@@ -1599,10 +1827,32 @@ export default function LeadsPage() {
                   onActivity={(action, desc) => addActivity(selectedLead.id!, action, desc)}
                   onLeadConverted={() => {
                     setLeads((prev) => prev.filter((lead) => lead.id !== selectedLead.id));
-                    setSelectedLead(null);
+                    closeLead();
                   }}
                 />
               )}
+
+              {/* ── Documents ── */}
+              <section className="bg-white border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+                    <Upload className="w-4 h-4" />
+                  </div>
+                  <h2 className="text-sm font-bold text-slate-900">Documents</h2>
+                  {selectedLeadDocuments.length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 text-xs font-semibold">
+                      {selectedLeadDocuments.length}
+                    </span>
+                  )}
+                </div>
+                <DocumentsPanel
+                  documents={selectedLeadDocuments}
+                  loading={false}
+                  uploading={docUploading}
+                  error={docError}
+                  onUpload={handlePopupDocUpload}
+                />
+              </section>
 
               {/* ── Activity Log ── */}
               <section className="bg-white border border-slate-200 rounded-xl p-4">
@@ -1617,45 +1867,29 @@ export default function LeadsPage() {
                     </span>
                   )}
                 </div>
+                <ActivityTimelineList
+                  items={selectedLeadActivities.filter((a) => !isMailActivity(a.action))}
+                  emptyMessage="No activity yet. Actions taken on this lead will appear here."
+                />
+              </section>
 
-                {selectedLeadActivities.length === 0 ? (
-                  <div className="text-center py-6 text-slate-400">
-                    <Bell className="w-7 h-7 mx-auto mb-2 opacity-25" />
-                    <p className="text-xs">No activity yet. Actions taken on this lead will appear here.</p>
+              {/* ── Mail Activity ── */}
+              <section className="bg-white border border-slate-200 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-4">
+                  <div className="w-8 h-8 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+                    <Mail className="w-4 h-4" />
                   </div>
-                ) : (
-                  <div className="max-h-80 overflow-y-auto pr-1">
-                  <div className="relative">
-                    {/* Timeline line */}
-                    <div className="absolute left-[15px] top-2 bottom-2 w-px bg-slate-100" />
-                    <div className="space-y-3">
-                      {selectedLeadActivities.map((a, idx) => (
-                        <div key={a.id} className="flex gap-3 relative">
-                          {/* Dot */}
-                          <div className={`w-[30px] h-[30px] rounded-full flex items-center justify-center shrink-0 z-10 text-[10px] font-bold ${
-                            idx === 0 ? "bg-indigo-600 text-white" : "bg-white border-2 border-slate-200 text-slate-400"
-                          }`}>
-                            {a.user.slice(0, 1).toUpperCase()}
-                          </div>
-                          <div className="flex-1 min-w-0 pb-1">
-                            <div className="flex items-center justify-between gap-2 flex-wrap">
-                              <p className="text-xs font-semibold text-slate-800">{a.action}</p>
-                              <span className="text-[10px] text-slate-400 shrink-0">
-                                {new Date(a.createdAt).toLocaleString("en-IN", {
-                                  day: "2-digit", month: "short", year: "numeric",
-                                  hour: "2-digit", minute: "2-digit",
-                                })}
-                              </span>
-                            </div>
-                            <p className="text-xs text-slate-500 mt-0.5 truncate">{a.description}</p>
-                            <p className="text-[10px] text-indigo-500 mt-0.5 font-medium">{a.user}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                  </div>
-                )}
+                  <h2 className="text-sm font-bold text-slate-900">Mail Activity</h2>
+                  {selectedLeadActivities.filter((a) => isMailActivity(a.action)).length > 0 && (
+                    <span className="px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700 text-xs font-semibold">
+                      {selectedLeadActivities.filter((a) => isMailActivity(a.action)).length}
+                    </span>
+                  )}
+                </div>
+                <ActivityTimelineList
+                  items={selectedLeadActivities.filter((a) => isMailActivity(a.action))}
+                  emptyMessage="No emails sent yet for this lead."
+                />
               </section>
               </div>
             </div>
@@ -1663,5 +1897,14 @@ export default function LeadsPage() {
         </div>
       )}
     </main>
+    {openingFromPipeline && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/70 p-4 backdrop-blur-sm" aria-label="Opening lead details">
+        <div className="w-full max-w-md rounded-3xl bg-white p-6 text-center shadow-2xl">
+          <div className="mx-auto h-10 w-10 animate-spin rounded-full border-4 border-slate-200 border-t-[#0070B8]" />
+          <p className="mt-4 text-sm font-bold text-slate-800">Opening lead details…</p>
+        </div>
+      </div>
+    )}
+    </>
   );
 }

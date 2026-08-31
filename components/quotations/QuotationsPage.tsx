@@ -15,7 +15,7 @@ import {
   type QuotationListItem,
   type Quotation,
 } from "@/lib/api/quotations";
-import { clientsApi } from "@/lib/api/clients";
+import { leadsApi } from "@/lib/api/leads";
 import { activityApi } from "@/lib/api/activity";
 
 const TIMELINE_UNIT_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
@@ -1339,7 +1339,7 @@ export default function QuotationsPage() {
       await quotationsApi.updateStatus(id, status);
       const quotation = quotations.find(q => q.id === id);
       if (status === "ACCEPTED" && quotation?.clientId) {
-        await clientsApi.convertLeadToClient(quotation.clientId);
+        await leadsApi.convert(quotation.clientId);
       }
       setQuotations(prev => prev.map(q => (q.id === id ? { ...q, status } : q)));
       setAllQuotations(prev => prev.map(q => (q.id === id ? { ...q, status } : q)));

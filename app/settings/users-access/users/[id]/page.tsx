@@ -42,7 +42,7 @@ export default function UserAccessPage({ params }: { params: Promise<{ id: strin
       const u = await usersApi.get(id);
       setUser(u);
       const [a, r, d, t, users] = await Promise.all([
-        userAccessApi.get(id, { legacyRole: u.role, userName: u.name || u.email }),
+        userAccessApi.get(id),
         rolesApi.list(),
         departmentsApi.list(),
         teamsApi.list(),
@@ -80,7 +80,7 @@ export default function UserAccessPage({ params }: { params: Promise<{ id: strin
       if (!nextRole) throw new Error("Role not found");
       const updatedUser = await usersApi.update(user.id, { roleId: nextRole.id });
       setUser(updatedUser);
-      setAccess(await userAccessApi.assignRole(user.id, roleId, { userName: user.name || user.email }));
+      setAccess(await userAccessApi.assignRole(user.id, roleId));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to change role");
     } finally {
@@ -93,7 +93,7 @@ export default function UserAccessPage({ params }: { params: Promise<{ id: strin
     setSavingField(true);
     setError(null);
     try {
-      setAccess(await userAccessApi.updateAccess(user.id, patch, { userName: user.name || user.email }));
+      setAccess(await userAccessApi.updateAccess(user.id, patch));
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to update access details");
     } finally {
@@ -121,7 +121,7 @@ export default function UserAccessPage({ params }: { params: Promise<{ id: strin
         const current = overrideMap[mod.id];
         if (base && JSON.stringify(base) !== JSON.stringify(current)) diffOverrides.push(current);
       }
-      setAccess(await userAccessApi.setOverride(user.id, diffOverrides, { userName: user.name || user.email }));
+      setAccess(await userAccessApi.setOverride(user.id, diffOverrides));
       setOverrideMode(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save override");
@@ -135,7 +135,7 @@ export default function UserAccessPage({ params }: { params: Promise<{ id: strin
     setSavingOverride(true);
     setError(null);
     try {
-      setAccess(await userAccessApi.clearOverride(user.id, { userName: user.name || user.email }));
+      setAccess(await userAccessApi.clearOverride(user.id));
       setOverrideMode(false);
       setConfirmReset(false);
     } catch (e) {

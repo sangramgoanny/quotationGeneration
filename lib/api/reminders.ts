@@ -59,7 +59,7 @@ export const remindersApi = {
   async globalList(filters: ReminderFilters = {}): Promise<ReminderListResponse> {
     const params = new URLSearchParams();
     Object.entries(filters).forEach(([key, value]) => { if (value !== undefined && value !== "") params.set(key, String(value)); });
-    const r = await request<{ success: boolean; data: { reminders: LeadReminder[]; pagination: ReminderListResponse } }>(`/api/reminders${params.toString() ? `?${params.toString()}` : ""}`);
+    const r = await request<{ success: boolean; data: { reminders: LeadReminder[]; pagination: { total: number; page: number; limit: number; pages: number } } }>(`/api/reminders${params.toString() ? `?${params.toString()}` : ""}`);
     return { data: r.data.reminders, ...r.data.pagination };
   },
 

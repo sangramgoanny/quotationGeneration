@@ -24,7 +24,7 @@ export default function ActivityLogsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      setEntries(await auditApi.list({ entityType: entityType || undefined, search: search || undefined }));
+      setEntries((await auditApi.list({ entityType: entityType || undefined, search: search || undefined })).entries);
     } finally {
       setLoading(false);
     }

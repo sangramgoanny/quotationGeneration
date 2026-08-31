@@ -15,7 +15,7 @@ interface RawLeadActivity {
 interface RawLeadListResponse {
   success: boolean;
   data: {
-    clients: Array<Omit<Partial<Client>, "activities"> & {
+    clients: Array<Omit<Partial<Client>, "activities" | "accountManager"> & {
       accountManager?: { id: string; name?: string; email?: string } | string | null;
       _count?: { quotations?: number; invoices?: number };
       activities?: RawLeadActivity[];

@@ -32,6 +32,7 @@ export function SendEmailModal({
   emailHistory,
   onSend,
   onClose,
+  onActivityChange,
 }: {
   id: string;
   title: string;
@@ -42,6 +43,7 @@ export function SendEmailModal({
   emailHistory?: { to: string; sentAt: string }[];
   onSend: (payload: SendEmailPayload) => Promise<void>;
   onClose: () => void;
+  onActivityChange?: () => void;
 }) {
   const [to, setTo] = useState(lastEmail?.to || defaultTo);
   const [cc, setCc] = useState(lastEmail?.cc?.join(", ") ?? "");
@@ -53,13 +55,13 @@ export function SendEmailModal({
 
   useEffect(() => {
     if (!id) return;
-    activityApi.create(id, "Email Started", "Opened send-email form").catch(() => {});
+    activityApi.create(id, "Email Started", "Opened send-email form").then(() => onActivityChange?.()).catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleClose = () => {
     if (!sent && id) {
-      activityApi.create(id, "Email Closed", "Closed send-email form without sending").catch(() => {});
+      activityApi.create(id, "Email Closed", "Closed send-email form without sending").then(() => onActivityChange?.()).catch(() => {});
     }
     onClose();
   };
@@ -76,6 +78,7 @@ export function SendEmailModal({
         message,
       });
       setSent(true);
+      onActivityChange?.();
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Unable to send email");
     } finally {

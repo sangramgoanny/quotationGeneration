@@ -24,6 +24,24 @@ interface RbacContextValue {
 const RbacContext = createContext<RbacContextValue | null>(null);
 const PUBLIC_PREFIXES = ["/login", "/admin/login"];
 
+// The backend serializes its permission map with snake/lower-case module keys
+// (e.g. "followups"), while the frontend catalog, routes and sidebar use
+// camelCase ids (e.g. "followUps"). Mirror the aliases we rely on so
+// canView("followUps") resolves instead of silently returning false.
+const BACKEND_MODULE_ALIASES: Record<string, string> = {
+  followups: "followUps",
+};
+
+function normalizePermissionKeys(
+  permissions: Record<string, EffectivePermission>,
+): Record<string, EffectivePermission> {
+  const next = { ...permissions };
+  for (const [backendKey, frontendKey] of Object.entries(BACKEND_MODULE_ALIASES)) {
+    if (next[backendKey] && !next[frontendKey]) next[frontendKey] = next[backendKey];
+  }
+  return next;
+}
+
 export function AuthRbacProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isPublicPath = PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
@@ -56,7 +74,8 @@ export function AuthRbacProvider({ children }: { children: ReactNode }) {
     }
     setLoading(true);
     try {
-      setCurrentUser(await rbacApi.me());
+      const me = await rbacApi.me();
+      setCurrentUser({ ...me, permissions: normalizePermissionKeys(me.permissions ?? {}) });
     } catch {
       setCurrentUser(null);
     } finally {

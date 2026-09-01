@@ -7,8 +7,10 @@ import { getToken, getUser } from "@/utils/token";
 import { Bell } from "lucide-react";
 import { useAuthRbac } from "@/lib/rbac/AuthRbacProvider";
 import { permissionForPath } from "@/lib/rbac/routes";
+import { isPathDeniedForRole } from "@/lib/rbac/roleAccess";
 import ProtectedRoute from "@/components/rbac/ProtectedRoute";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
+import { ShieldAlert } from "lucide-react";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":        "Dashboard",
@@ -41,8 +43,10 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
   const pathname = usePathname();
   const showSidebar = !NO_SIDEBAR_PREFIXES.some((p) => pathname.startsWith(p));
   const token = useSyncExternalStore(subscribeToTokenChanges, getToken, () => null);
-  const { loading: permissionsLoading } = useAuthRbac();
+  const { loading: permissionsLoading, currentUser } = useAuthRbac();
+  const roleCode = currentUser?.assignedRole?.code ?? null;
   const routePermission = permissionForPath(pathname);
+  const routeDeniedForRole = isPathDeniedForRole(roleCode, pathname);
 
   if (!showSidebar) return <>{children}</>;
   if (permissionsLoading) return <div className="flex min-h-screen items-center justify-center bg-slate-100"><LoadingSpinner /></div>;
@@ -87,7 +91,13 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
 
         {/* Page content */}
         <main className="flex-1 overflow-y-auto p-6">
-          {routePermission ? (
+          {routeDeniedForRole ? (
+            <div className="flex min-h-[45vh] flex-col items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
+              <ShieldAlert className="h-10 w-10 text-amber-600" />
+              <h1 className="mt-3 text-lg font-bold text-slate-900">Permission denied</h1>
+              <p className="mt-1 max-w-md text-sm text-slate-600">You do not have permission to access this page.</p>
+            </div>
+          ) : routePermission ? (
             <ProtectedRoute module={routePermission.module} action={routePermission.action}>{children}</ProtectedRoute>
           ) : children}
         </main>

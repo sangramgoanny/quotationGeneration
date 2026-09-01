@@ -119,6 +119,10 @@ const ROLE_PERMISSION_TEMPLATES: SeedRole[] = [
       activities: { scope: OWN, actions: ["view", "create", "edit"] },
       followUps: { scope: OWN, actions: ["view", "create", "edit"] },
       tasks: { scope: OWN, actions: ["view", "create", "edit"] },
+      // OWN here must mean "quotations belonging to a lead/client this user
+      // owns or is assigned", not only quotations they personally created —
+      // see docs/rbac-quotation-access-spec.md. No finance grants past this
+      // stage (invoices/receipts/outstanding stay NONE).
       quotations: { scope: OWN, actions: ["view", "create", "edit"] },
     }),
   },

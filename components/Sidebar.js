@@ -6,6 +6,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { clearToken } from "@/utils/token";
 import { usePermissions } from "@/lib/rbac/usePermissions";
+import { isModuleDeniedForRole, isNavLabelDeniedForRole } from "@/lib/rbac/roleAccess";
 import { leadsApi } from "@/lib/api/leads";
 import { quotationsApi } from "@/lib/api/quotations";
 import { remindersApi } from "@/lib/api/reminders";
@@ -98,9 +99,14 @@ const SECTIONS = [
 ];
 
 // Only show RBAC-backed items when the user has VIEW access. Items without a
-// moduleId are not in the permission catalog yet and remain visible.
-function filterSections(sections, canView, loading, counts) {
-  const itemVisible = (item) => !loading && (!item.moduleId || canView(item.moduleId));
+// moduleId are not in the permission catalog yet and remain visible, unless a
+// per-role rule in lib/rbac/roleAccess.ts hides them by label/module.
+function filterSections(sections, canView, loading, counts, roleCode) {
+  const itemVisible = (item) =>
+    !loading &&
+    !isNavLabelDeniedForRole(roleCode, item.label) &&
+    !isModuleDeniedForRole(roleCode, item.moduleId) &&
+    (!item.moduleId || canView(item.moduleId));
   const withCount = (item) => item.countKey && counts[item.countKey] !== undefined
     ? { ...item, badge: counts[item.countKey] }
     : item;
@@ -109,6 +115,7 @@ function filterSections(sections, canView, loading, counts) {
     .map((section) => {
       const items = section.items
         .map((item) => {
+          if (isNavLabelDeniedForRole(roleCode, item.label)) return null;
           if (!item.children) return itemVisible(item) ? withCount(item) : null;
           const children = item.children.filter(itemVisible).map(withCount);
           if (children.length === 0) return null;
@@ -146,6 +153,7 @@ export default function Sidebar() {
   const [open, setOpen] = useState([]);
   const [collapsed, setCollapsed] = useState(false);
   const { canView, currentUser, loading: permissionsLoading } = usePermissions();
+  const roleCode = currentUser?.assignedRole?.code ?? null;
   const [counts, setCounts] = useState({});
 
   useEffect(() => {
@@ -171,7 +179,7 @@ export default function Sidebar() {
     return () => { active = false; };
   }, [canView, currentUser, permissionsLoading]);
 
-  const sections = filterSections(SECTIONS, canView, permissionsLoading, counts);
+  const sections = filterSections(SECTIONS, canView, permissionsLoading, counts, roleCode);
 
   const getAutoOpen = (path) =>
     sections.flatMap((section) => section.items)

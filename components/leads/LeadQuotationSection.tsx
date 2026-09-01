@@ -18,6 +18,7 @@ import {
 import { type TimelinePhase, type TimelineUnit } from "@/lib/quotationStore";
 import { leadsApi } from "@/lib/api/leads";
 import { activityApi } from "@/lib/api/activity";
+import { usePermissions } from "@/lib/rbac/usePermissions";
 
 const UNIT_TO_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
 const UNIT_TO_API: Record<TimelineUnit, "DAYS" | "WEEKS" | "MONTHS"> = { Days: "DAYS", Weeks: "WEEKS", Months: "MONTHS" };
@@ -575,11 +576,13 @@ function SendLeadQuotationEmailModal({
   leadId,
   onClose,
   onSent,
+  onActivityChange,
 }: {
   quotation: SavedQuotation & { contractData: QuotationContract };
   leadId: string;
   onClose: () => void;
   onSent: (status: QuotationStatus) => void;
+  onActivityChange?: () => void;
 }) {
   const [to, setTo] = useState(quotation.clientEmail ?? "");
   const [cc, setCc] = useState("");
@@ -592,13 +595,19 @@ function SendLeadQuotationEmailModal({
   const [sent, setSent] = useState(false);
 
   useEffect(() => {
-    activityApi.create(leadId, "Email Started", `Opened send-email form for Quotation ${quotation.quotationNumber}`).catch(() => {});
+    activityApi
+      .create(leadId, "Email Started", `Opened send-email form for Quotation ${quotation.quotationNumber}`)
+      .then(() => onActivityChange?.())
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleClose = () => {
     if (!sent) {
-      activityApi.create(leadId, "Email Closed", `Closed send-email form for Quotation ${quotation.quotationNumber} without sending`).catch(() => {});
+      activityApi
+        .create(leadId, "Email Closed", `Closed send-email form for Quotation ${quotation.quotationNumber} without sending`)
+        .then(() => onActivityChange?.())
+        .catch(() => {});
     }
     onClose();
   };
@@ -619,6 +628,7 @@ function SendLeadQuotationEmailModal({
       });
       setSent(true);
       onSent(result.status);
+      onActivityChange?.();
     } catch (sendError) {
       setError(sendError instanceof Error ? sendError.message : "Unable to send email");
     } finally {
@@ -834,8 +844,9 @@ function QuotationModal({ leadId, initial, existingId, displayNumber, onClose, o
     setDownloading(false);
   };
 
-  const inputCls =
-    "border border-slate-200 rounded-lg px-3 py-2 text-sm w-full focus:outline-none focus:ring-2 focus:ring-indigo-400";
+  const inputBaseCls =
+    "border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400";
+  const inputCls = `${inputBaseCls} w-full`;
   const labelCls = "block text-xs font-semibold text-slate-600 mb-1";
 
   return (
@@ -980,24 +991,29 @@ function QuotationModal({ leadId, initial, existingId, displayNumber, onClose, o
                 <Plus className="w-3.5 h-3.5" /> Add Row
               </button>
             </div>
+            <div className="flex gap-2 mb-1 px-1">
+              <p className="flex-1 text-xs font-semibold text-slate-500 uppercase tracking-wide">Description</p>
+              <p className="w-28 shrink-0 text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount (₹)</p>
+              <div className="w-8 shrink-0" />
+            </div>
             <div className="space-y-2">
               {contract.pricing.map((row, i) => (
-                <div key={i} className="flex gap-2">
+                <div key={i} className="flex gap-2 items-center">
                   <input
-                    className={`${inputCls} flex-1`}
+                    className={`${inputCls} flex-1 min-w-0`}
                     placeholder="Service description"
                     value={row.description}
                     onChange={(e) => updatePricing(i, "description", e.target.value)}
                   />
                   <input
-                    className={`${inputCls} w-32`}
-                    placeholder="Cost"
+                    className={`${inputBaseCls} w-28 shrink-0`}
+                    placeholder="0"
                     value={row.cost}
                     onChange={(e) => updatePricing(i, "cost", e.target.value)}
                   />
                   <button
                     onClick={() => removePricing(i)}
-                    className="p-2 text-red-400 hover:bg-red-50 rounded-lg"
+                    className="p-2 shrink-0 text-red-400 hover:bg-red-50 rounded-lg"
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
@@ -1356,6 +1372,9 @@ interface LeadQuotationSectionProps {
   onCreateHandled?: () => void;
   onActivity?: (action: string, description: string) => void;
   onLeadConverted?: () => void;
+  /** Called after a quotation email activity is logged so the parent can
+   *  refresh its activity/mail feed without waiting for a remount. */
+  onMailActivity?: () => void;
 }
 
 export default function LeadQuotationSection({
@@ -1365,8 +1384,13 @@ export default function LeadQuotationSection({
   onCreateHandled,
   onActivity,
   onLeadConverted,
+  onMailActivity,
 }: LeadQuotationSectionProps) {
   const router = useRouter();
+  // Finance is out of scope for roles past the quotation stage (e.g. Sales
+  // Executive). Hide the invoice hand-off unless the user can view invoices;
+  // the backend enforces the same rule on /invoice.
+  const { canView } = usePermissions();
   const [quotations, setQuotations] = useState<SavedQuotation[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1600,7 +1624,7 @@ export default function LeadQuotationSection({
                           >
                             {emailingId === q.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Mail className="w-4 h-4" />}
                           </button>
-                          {q.status === "ACCEPTED" && (
+                          {q.status === "ACCEPTED" && canView("invoices") && (
                             <button
                               title="Create Invoice"
                               onClick={() => router.push(`/invoice/new?clientId=${encodeURIComponent(leadId)}&quotationId=${encodeURIComponent(q.id)}`)}
@@ -1658,6 +1682,7 @@ export default function LeadQuotationSection({
         <SendLeadQuotationEmailModal
           quotation={emailingQuotation}
           leadId={leadId}
+          onActivityChange={onMailActivity}
           onClose={() => setEmailingQuotation(null)}
           onSent={(status) => {
             setQuotations((prev) => prev.map((q) => (q.id === emailingQuotation.id ? { ...q, status } : q)));

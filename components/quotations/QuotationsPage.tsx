@@ -17,6 +17,7 @@ import {
 } from "@/lib/api/quotations";
 import { leadsApi } from "@/lib/api/leads";
 import { activityApi } from "@/lib/api/activity";
+import { usePermissions } from "@/lib/rbac/usePermissions";
 
 const TIMELINE_UNIT_DAYS: Record<TimelineUnit, number> = { Days: 1, Weeks: 7, Months: 30 };
 const API_TO_UNIT: Record<string, TimelineUnit> = { DAYS: "Days", WEEKS: "Weeks", MONTHS: "Months" };
@@ -1235,6 +1236,9 @@ function StatCard({
 
 export default function QuotationsPage() {
   const router = useRouter();
+  // Roles past the quotation stage (e.g. Sales Executive) have no finance
+  // access — hide the invoice hand-off. The backend enforces the same on /invoice.
+  const { canView } = usePermissions();
 
   // ── List state ──
   const [quotations, setQuotations] = useState<QuotationListItem[]>([]);
@@ -1490,7 +1494,7 @@ export default function QuotationsPage() {
                             className="p-1.5 rounded-lg text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-40">
                             <Mail className="w-4 h-4" />
                           </button>
-                          {q.status === "ACCEPTED" && (
+                          {q.status === "ACCEPTED" && canView("invoices") && (
                             <button
                               title="Create Invoice"
                               onClick={() => router.push(`/invoice/new?clientId=${encodeURIComponent(q.clientId)}&quotationId=${encodeURIComponent(q.id)}`)}

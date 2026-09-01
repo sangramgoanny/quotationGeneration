@@ -833,6 +833,23 @@ export default function LeadsPage() {
     clientsApi.update(leadId, { [key]: updated[key] }).catch(() => { /* ignore */ });
   };
 
+  // Re-pull the persisted activity feed for a lead — used after child modals
+  // (e.g. the quotation email dialog) append their own activities directly.
+  const refreshLeadActivities = (leadId: string) => {
+    activityApi.list(leadId).then((logs) => {
+      setActivitiesByLead((prev) => ({
+        ...prev,
+        [leadId]: logs.map((a) => ({
+          id:          a.id,
+          user:        a.user?.name ?? a.userName ?? "Unknown",
+          action:      a.action,
+          description: a.description,
+          createdAt:   a.createdAt,
+        })),
+      }));
+    }).catch(() => {});
+  };
+
   const addActivity = (leadId: string, action: string, description: string) => {
     // Add to local state immediately (optimistic)
     const localEntry: ActivityEntry = {
@@ -1825,6 +1842,7 @@ export default function LeadsPage() {
                   triggerCreate={triggerCreateQuotation}
                   onCreateHandled={() => setTriggerCreateQuotation(false)}
                   onActivity={(action, desc) => addActivity(selectedLead.id!, action, desc)}
+                  onMailActivity={() => refreshLeadActivities(selectedLead.id!)}
                   onLeadConverted={() => {
                     setLeads((prev) => prev.filter((lead) => lead.id !== selectedLead.id));
                     closeLead();

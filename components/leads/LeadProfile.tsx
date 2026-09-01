@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -127,6 +127,12 @@ export default function LeadProfile({ leadId }: Props) {
     return () => {
       isMounted = false;
     };
+  }, [leadId]);
+
+  // Re-pull the lead (and its activity/mail feed) after actions that append
+  // activities from child modals, so the timeline updates without a remount.
+  const reloadLead = useCallback(() => {
+    leadsApi.get(leadId).then(setLead).catch(() => {});
   }, [leadId]);
 
   useEffect(() => {
@@ -335,6 +341,7 @@ export default function LeadProfile({ leadId }: Props) {
         leadName={lead.companyName || "Client"}
         triggerCreate={triggerCreate}
         onCreateHandled={() => setTriggerCreate(false)}
+        onMailActivity={reloadLead}
       />
       {emailing && (
         <SendEmailModal
@@ -345,6 +352,7 @@ export default function LeadProfile({ leadId }: Props) {
           defaultMessage={`Dear ${lead.contactPersonName || lead.companyName || "there"},\n\n\n\nRegards,\nGoanny Ai Tech`}
           lastEmail={lead.lastEmail}
           emailHistory={lead.emailHistory}
+          onActivityChange={reloadLead}
           onSend={async (payload) => {
             await leadsApi.sendEmail(leadId, payload);
             leadsApi.get(leadId).then(setLead).catch(() => {});

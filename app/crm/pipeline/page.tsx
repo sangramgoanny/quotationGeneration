@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle, CalendarDays, ChevronDown, Eye, Filter, Mail, Phone, RefreshCw, Search, Target, UserRound } from "lucide-react";
 import { leadsApi } from "@/lib/api/leads";
+import { usersApi, type User } from "@/lib/api/users";
 import type { Client } from "@/types/client";
 
 const STAGES = ["New", "Hot", "Warm", "Cold", "Quotation Sent", "Won", "Lost"] as const;
@@ -41,11 +42,13 @@ function LeadCard({ lead, onStageChange, onConvert, onView, onDragStart, onDragE
         <span className={`rounded-full border px-2.5 py-1 ${stageTone[stage]}`}>{stage}</span>
         <span className="rounded-full bg-slate-100 px-2.5 py-1">{lead.leadSource || "Source not set"}</span>
       </div>
-      <div className="mt-4 grid grid-cols-2 gap-2 border-t border-slate-100 pt-3 text-[11px]">
-        <p className="truncate text-slate-500"><UserRound className="mr-1 inline h-3.5 w-3.5" />{lead.accountManagerName || "Unassigned"}</p>
-        <p className="text-right font-bold text-slate-700"><Target className="mr-1 inline h-3.5 w-3.5 text-[#0070B8]" />{lead.quotationCount ?? 0} quotes</p>
-        <p className="truncate text-slate-400"><CalendarDays className="mr-1 inline h-3.5 w-3.5" />{lead.nextFollowUpDate ? new Date(lead.nextFollowUpDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "No follow-up"}</p>
-        <div className="col-span-2 flex items-center justify-between gap-2">
+      <div className="mt-4 space-y-2 border-t border-slate-100 pt-3 text-[11px]">
+        <p className="flex items-start gap-1.5 font-semibold text-slate-600" title={lead.accountManagerName || "Unassigned"}><UserRound className="mt-0.5 h-3.5 w-3.5 shrink-0 text-slate-400" /><span className="min-w-0 break-words">{lead.accountManagerName || "Unassigned"}</span></p>
+        <div className="grid grid-cols-2 gap-2">
+          <p className="truncate text-slate-400"><CalendarDays className="mr-1 inline h-3.5 w-3.5" />{lead.nextFollowUpDate ? new Date(lead.nextFollowUpDate).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }) : "No follow-up"}</p>
+          <p className="text-right font-bold text-slate-700"><Target className="mr-1 inline h-3.5 w-3.5 text-[#0070B8]" />{lead.quotationCount ?? 0} quotes</p>
+        </div>
+        <div className="flex items-center justify-between gap-2">
           {stage === "Won" ? (
             <button type="button" onClick={() => onConvert(lead)} className="inline-flex min-h-8 flex-1 items-center justify-center rounded-lg bg-emerald-600 px-2.5 py-1.5 text-[10px] font-black text-white shadow-sm transition hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-300">Convert to Client</button>
           ) : <span className="text-[10px] font-semibold text-slate-400">Lead actions</span>}
@@ -66,6 +69,8 @@ export default function PipelinePage() {
   const [summary, setSummary] = useState<Awaited<ReturnType<typeof leadsApi.pipelineSummary>> | null>(null);
   const [search, setSearch] = useState("");
   const [stageFilter, setStageFilter] = useState<Stage | "">("");
+  const [assigneeFilter, setAssigneeFilter] = useState("");
+  const [assignableUsers, setAssignableUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -75,7 +80,7 @@ export default function PipelinePage() {
     setLoading(true); setError(null);
     try {
       const [listResult, summaryResult] = await Promise.allSettled([
-        leadsApi.list({ search: search || undefined, stage: stageFilter ? stageApi[stageFilter] : undefined, limit: 200 }),
+        leadsApi.list({ search: search || undefined, stage: stageFilter ? stageApi[stageFilter] : undefined, accountManagerId: assigneeFilter || undefined, limit: 200 }),
         leadsApi.pipelineSummary(),
       ]);
       if (listResult.status === "rejected") throw listResult.reason;
@@ -85,9 +90,13 @@ export default function PipelinePage() {
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Unable to load pipeline");
     } finally { setLoading(false); }
-  }, [search, stageFilter]);
+  }, [search, stageFilter, assigneeFilter]);
 
   useEffect(() => { const timer = window.setTimeout(() => void load(), 250); return () => window.clearTimeout(timer); }, [load]);
+
+  useEffect(() => {
+    usersApi.list({ isActive: true, assignableTo: "leads" }).then(setAssignableUsers).catch(() => { /* keep filter usable */ });
+  }, []);
 
   const grouped = useMemo(() => STAGES.map((stage) => ({ stage, leads: leads.filter((lead) => displayStage(lead.leadStage) === stage), summary: summary?.stages.find((item) => item.stage === stageApi[stage]) })), [leads, summary]);
   const updateStage = async (lead: Client, stage: Stage) => {
@@ -133,6 +142,7 @@ export default function PipelinePage() {
         <div className="flex flex-col gap-3 md:flex-row">
           <label className="relative flex-1"><Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search leads, companies, or contacts" className="h-11 w-full rounded-xl border border-slate-200 bg-slate-50 pl-10 pr-3 text-sm outline-none focus:border-sky-300 focus:bg-white focus:ring-4 focus:ring-sky-100" /></label>
           <div className="relative"><Filter className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" /><select value={stageFilter} onChange={(event) => setStageFilter(event.target.value as Stage | "")} className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-8 pr-9 text-sm font-bold text-slate-600"><option value="">All stages</option>{STAGES.map((stage) => <option key={stage}>{stage}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" /></div>
+          <div className="relative"><UserRound className="absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" /><select value={assigneeFilter} onChange={(event) => setAssigneeFilter(event.target.value)} className="h-11 w-full appearance-none rounded-xl border border-slate-200 bg-white pl-8 pr-9 text-sm font-bold text-slate-600"><option value="">All users</option>{assignableUsers.map((user) => <option key={user.id} value={user.id}>{user.name || user.email}</option>)}</select><ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" /></div>
           <button type="button" onClick={() => void load()} className="inline-flex h-11 items-center justify-center gap-2 rounded-xl bg-[#0070B8] px-4 text-sm font-bold text-white"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Refresh</button>
         </div>
         <p className="mt-3 text-[11px] font-semibold text-slate-400">Drag a lead card to another stage, or use the stage menu on the card.</p>

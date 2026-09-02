@@ -3,14 +3,17 @@
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle, ShieldAlert } from "lucide-react";
 import ClientForm from "@/components/clients/ClientForm";
 import { clientsApi } from "@/lib/api/clients";
 import { ApiRequestError } from "@/lib/api/request";
 import type { Client } from "@/types/client";
+import { usePermissions } from "@/lib/rbac/usePermissions";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 export default function NewClientPage() {
   const router = useRouter();
+  const { can, loading: permissionsLoading } = usePermissions();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -29,6 +32,24 @@ export default function NewClientPage() {
       setIsLoading(false);
     }
   };
+
+  if (permissionsLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!can("clients", "create")) {
+    return (
+      <div className="flex min-h-[45vh] flex-col items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
+        <ShieldAlert className="h-10 w-10 text-amber-600" />
+        <h1 className="mt-3 text-lg font-bold text-slate-900">Permission denied</h1>
+        <p className="mt-1 max-w-md text-sm text-slate-600">You do not have permission to access this page.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full min-h-screen bg-slate-50">

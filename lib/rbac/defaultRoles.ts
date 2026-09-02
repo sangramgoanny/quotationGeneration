@@ -114,7 +114,9 @@ const ROLE_PERMISSION_TEMPLATES: SeedRole[] = [
     permissions: buildPermissions({
       dashboard: { scope: ALL, actions: ["view"] },
       leads: { scope: OWN, actions: ["view", "create", "edit"] },
-      clients: { scope: OWN, actions: ["view", "edit"] },
+      // Read-only in the Clients area — see docs/rbac-sales-executive-audit.md.
+      // The frontend gates every mutating control on can("clients", "edit").
+      clients: { scope: OWN, actions: ["view"] },
       contacts: { scope: OWN, actions: ["view", "create", "edit"] },
       activities: { scope: OWN, actions: ["view", "create", "edit"] },
       followUps: { scope: OWN, actions: ["view", "create", "edit"] },

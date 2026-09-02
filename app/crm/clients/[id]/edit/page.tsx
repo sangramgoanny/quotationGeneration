@@ -3,10 +3,12 @@
 import React, { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, AlertCircle } from "lucide-react";
+import { ArrowLeft, AlertCircle, ShieldAlert } from "lucide-react";
 import ClientForm from "@/components/clients/ClientForm";
 import { clientsApi } from "@/lib/api/clients";
 import type { Client } from "@/types/client";
+import { usePermissions } from "@/lib/rbac/usePermissions";
+import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 interface Props {
   params: Promise<{ id: string }>;
@@ -15,6 +17,7 @@ interface Props {
 export default function EditClientPage({ params }: Props) {
   const { id } = use(params);
   const router = useRouter();
+  const { can, loading: permissionsLoading } = usePermissions();
   const [client, setClient] = useState<Client | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -47,6 +50,24 @@ export default function EditClientPage({ params }: Props) {
       setIsLoading(false);
     }
   };
+
+  if (permissionsLoading) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!can("clients", "edit")) {
+    return (
+      <div className="flex min-h-[45vh] flex-col items-center justify-center rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
+        <ShieldAlert className="h-10 w-10 text-amber-600" />
+        <h1 className="mt-3 text-lg font-bold text-slate-900">Permission denied</h1>
+        <p className="mt-1 max-w-md text-sm text-slate-600">You do not have permission to access this page.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col h-full min-h-screen bg-slate-50">

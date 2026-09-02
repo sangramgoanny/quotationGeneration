@@ -18,6 +18,7 @@ import { usersApi, type User as AccountUser } from "@/lib/api/users";
 import type { Client, ClientStatus, Industry } from "@/types/client";
 import DateRangePicker from "@/components/ui/DateRangePicker";
 import { SendEmailModal } from "@/components/shared/SendEmailModal";
+import { usePermissions } from "@/lib/rbac/usePermissions";
 
 // ─── Status badge config ──────────────────────────────────────────────────────
 
@@ -91,6 +92,8 @@ function ClientPreviewDrawer({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const { can } = usePermissions();
+  const canEdit = can("clients", "edit");
   const health = getClientHealth(client);
   const created = client.createdAt
     ? new Date(client.createdAt).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
@@ -181,16 +184,20 @@ function ClientPreviewDrawer({
             </p>
           </section>
 
-          <div className="grid grid-cols-3 gap-3">
+          <div className={`grid gap-3 ${canEdit ? "grid-cols-3" : "grid-cols-1"}`}>
             <button onClick={() => router.push(`/crm/clients/${client.id}`)} className="rounded-2xl bg-[#0070B8] px-4 py-3 text-sm font-black text-white transition hover:-translate-y-0.5">
               View Profile
             </button>
-            <button onClick={() => router.push(`/crm/clients/${client.id}/edit`)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50">
-              Edit Client
-            </button>
-            <button onClick={() => router.push(`/quotation?clientId=${client.id}`)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-black text-[#0070B8] transition hover:-translate-y-0.5">
-              Create Quotation
-            </button>
+            {canEdit && (
+              <button onClick={() => router.push(`/crm/clients/${client.id}/edit`)} className="rounded-2xl border border-slate-200 px-4 py-3 text-sm font-black text-slate-700 transition hover:-translate-y-0.5 hover:bg-slate-50">
+                Edit Client
+              </button>
+            )}
+            {canEdit && (
+              <button onClick={() => router.push(`/quotation?clientId=${client.id}`)} className="rounded-2xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-black text-[#0070B8] transition hover:-translate-y-0.5">
+                Create Quotation
+              </button>
+            )}
           </div>
         </div>
       </aside>
@@ -220,6 +227,8 @@ function ActionButtons({
   client: Client;
 }) {
   const router = useRouter();
+  const { can } = usePermissions();
+  const canEdit = can("clients", "edit");
   const [emailing, setEmailing] = useState(false);
   const [emailTarget, setEmailTarget] = useState<Client>(client);
 
@@ -241,15 +250,17 @@ function ActionButtons({
         <Eye className="h-4 w-4 transition-transform group-hover/action:scale-110" />
       </button>
 
-      <button
-        title="Edit Client"
-        onClick={() => router.push(`/crm/clients/${client.id}/edit`)}
-        className={`${btn} text-slate-600 hover:bg-slate-100`}
-      >
-        <Edit className="h-4 w-4 transition-transform group-hover/action:scale-110" />
-      </button>
+      {canEdit && (
+        <button
+          title="Edit Client"
+          onClick={() => router.push(`/crm/clients/${client.id}/edit`)}
+          className={`${btn} text-slate-600 hover:bg-slate-100`}
+        >
+          <Edit className="h-4 w-4 transition-transform group-hover/action:scale-110" />
+        </button>
+      )}
 
-      {client.primaryEmail && (
+      {canEdit && client.primaryEmail && (
         <button
           title="Send Email"
           onClick={openEmail}
@@ -267,33 +278,35 @@ function ActionButtons({
         <ActivityIcon className="h-4 w-4 transition-transform group-hover/action:scale-110" />
       </button>
 
-      <details className="group/menu relative">
-        <summary title="More actions" className={`${btn} list-none cursor-pointer text-slate-500 hover:bg-slate-100`}>
-          <MoreVertical className="h-4 w-4" />
-        </summary>
-        <div className="absolute right-0 z-30 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl">
-          {[
-            ["Create Quotation", FileText, `/quotation/new?clientId=${client.id}`],
-            ["Create Invoice", Receipt, `/invoice/new?clientId=${client.id}`],
-            ["Create Agreement", Briefcase, `/contract?clientId=${client.id}`],
-            ["Add Follow-up", Clock3, `/crm/clients/${client.id}?tab=activity`],
-            ["Upload Document", Upload, `/crm/clients/${client.id}?tab=documents`],
-            ["View Timeline", ActivityIcon, `/crm/clients/${client.id}?tab=activity`],
-          ].map(([label, Icon, href]) => {
-            const MenuIcon = Icon as React.ComponentType<{ className?: string }>;
-            return (
-              <button
-                key={String(label)}
-                type="button"
-                onClick={() => router.push(String(href))}
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-sky-50 hover:text-[#0070B8]"
-              >
-                <MenuIcon className="h-3.5 w-3.5" /> {String(label)}
-              </button>
-            );
-          })}
-        </div>
-      </details>
+      {canEdit && (
+        <details className="group/menu relative">
+          <summary title="More actions" className={`${btn} list-none cursor-pointer text-slate-500 hover:bg-slate-100`}>
+            <MoreVertical className="h-4 w-4" />
+          </summary>
+          <div className="absolute right-0 z-30 mt-1 w-52 overflow-hidden rounded-xl border border-slate-200 bg-white p-1.5 text-left shadow-xl">
+            {[
+              ["Create Quotation", FileText, `/quotation/new?clientId=${client.id}`],
+              ["Create Invoice", Receipt, `/invoice/new?clientId=${client.id}`],
+              ["Create Agreement", Briefcase, `/contract?clientId=${client.id}`],
+              ["Add Follow-up", Clock3, `/crm/clients/${client.id}?tab=activity`],
+              ["Upload Document", Upload, `/crm/clients/${client.id}?tab=documents`],
+              ["View Timeline", ActivityIcon, `/crm/clients/${client.id}?tab=activity`],
+            ].map(([label, Icon, href]) => {
+              const MenuIcon = Icon as React.ComponentType<{ className?: string }>;
+              return (
+                <button
+                  key={String(label)}
+                  type="button"
+                  onClick={() => router.push(String(href))}
+                  className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-sky-50 hover:text-[#0070B8]"
+                >
+                  <MenuIcon className="h-3.5 w-3.5" /> {String(label)}
+                </button>
+              );
+            })}
+          </div>
+        </details>
+      )}
       {emailing && (
         <SendEmailModal
           id={client.id ?? ""}
@@ -366,6 +379,8 @@ export default function ClientsPage() {
 function ClientsPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
+  const { can } = usePermissions();
+  const canCreate = can("clients", "create");
   const [clients, setClients] = useState<Client[]>([]);
   const [loading, setLoading] = useState(true);
   const [countsLoading, setCountsLoading] = useState(true);
@@ -597,11 +612,13 @@ function ClientsPageInner() {
                 className="h-10 w-full rounded-xl border border-white/15 bg-white/10 pl-10 pr-4 text-xs text-white outline-none placeholder:text-slate-400 focus:border-sky-300 focus:bg-white/15 focus:ring-2 focus:ring-sky-300/30"
               />
             </div>
-            <div className="flex shrink-0 flex-wrap items-center gap-2">
-              <Link href="/crm/clients/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#E60046] px-4 text-xs font-black text-white shadow-lg shadow-rose-950/20 transition hover:-translate-y-0.5 hover:bg-rose-500">
-                <Plus className="h-3.5 w-3.5" /> Add New Client
-              </Link>
-            </div>
+            {canCreate && (
+              <div className="flex shrink-0 flex-wrap items-center gap-2">
+                <Link href="/crm/clients/new" className="inline-flex h-10 items-center gap-2 rounded-xl bg-[#E60046] px-4 text-xs font-black text-white shadow-lg shadow-rose-950/20 transition hover:-translate-y-0.5 hover:bg-rose-500">
+                  <Plus className="h-3.5 w-3.5" /> Add New Client
+                </Link>
+              </div>
+            )}
           </div>
         </div>
 
@@ -813,13 +830,15 @@ function ClientsPageInner() {
                           <Users className="h-8 w-8" />
                         </div>
                         <p className="text-base font-black text-slate-700">No clients found</p>
-                        <p className="text-sm">Try adjusting your filters or add a new client</p>
-                        <Link
-                          href="/crm/clients/new"
-                          className="mt-2 flex items-center gap-1.5 rounded-2xl bg-[#0070B8] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-sky-100 transition hover:-translate-y-0.5 hover:bg-[#075f99]"
-                        >
-                          <Plus className="h-4 w-4" /> Add First Client
-                        </Link>
+                        <p className="text-sm">Try adjusting your filters{canCreate ? " or add a new client" : ""}</p>
+                        {canCreate && (
+                          <Link
+                            href="/crm/clients/new"
+                            className="mt-2 flex items-center gap-1.5 rounded-2xl bg-[#0070B8] px-4 py-2.5 text-sm font-bold text-white shadow-lg shadow-sky-100 transition hover:-translate-y-0.5 hover:bg-[#075f99]"
+                          >
+                            <Plus className="h-4 w-4" /> Add First Client
+                          </Link>
+                        )}
                       </div>
                     </td>
                   </tr>

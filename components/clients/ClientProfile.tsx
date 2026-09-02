@@ -271,7 +271,7 @@ function QuotStatusBadge({ status }: { status: QuotationStatus }) {
   );
 }
 
-function ClientQuotationsTab({ clientId, clientName }: { clientId: string; clientName: string }) {
+function ClientQuotationsTab({ clientId, clientName, readOnly }: { clientId: string; clientName: string; readOnly: boolean }) {
   const [quotations, setQuotations] = useState<QuotationListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -307,21 +307,25 @@ function ClientQuotationsTab({ clientId, clientName }: { clientId: string; clien
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">{quotations.length} quotation{quotations.length !== 1 ? "s" : ""} found</p>
-        <Link
-          href={`/quotation/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" /> New Quotation
-        </Link>
+        {!readOnly && (
+          <Link
+            href={`/quotation/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> New Quotation
+          </Link>
+        )}
       </div>
 
       {quotations.length === 0 ? (
         <EmptyState
           message="No quotations linked to this client yet"
           action={
-            <SmallActionLink href={`/quotation/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}>
-              <Plus className="w-3.5 h-3.5" /> New Quotation
-            </SmallActionLink>
+            readOnly ? undefined : (
+              <SmallActionLink href={`/quotation/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}>
+                <Plus className="w-3.5 h-3.5" /> New Quotation
+              </SmallActionLink>
+            )
           }
         />
       ) : (
@@ -357,13 +361,15 @@ function ClientQuotationsTab({ clientId, clientName }: { clientId: string; clien
                   </td>
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
-                      <Link
-                        href={`/quotation/${q.id}/edit`}
-                        className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
-                        title="Edit"
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </Link>
+                      {!readOnly && (
+                        <Link
+                          href={`/quotation/${q.id}/edit`}
+                          className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+                          title="Edit"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </Link>
+                      )}
                       <button
                         type="button"
                         onClick={() => openQuotation(q.id)}
@@ -440,7 +446,7 @@ function AgrStatusBadge({ status }: { status: AgreementStatus }) {
   );
 }
 
-function ClientAgreementsTab({ clientId, clientName }: { clientId: string; clientName: string }) {
+function ClientAgreementsTab({ clientId, clientName, readOnly }: { clientId: string; clientName: string; readOnly: boolean }) {
   const [agreements, setAgreements] = useState<AgreementListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -459,21 +465,25 @@ function ClientAgreementsTab({ clientId, clientName }: { clientId: string; clien
     <div className="space-y-3">
       <div className="flex items-center justify-between">
         <p className="text-xs text-slate-500">{agreements.length} agreement{agreements.length !== 1 ? "s" : ""} found</p>
-        <Link
-          href={`/contract/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}
-          className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" /> New Agreement
-        </Link>
+        {!readOnly && (
+          <Link
+            href={`/contract/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" /> New Agreement
+          </Link>
+        )}
       </div>
 
       {agreements.length === 0 ? (
         <EmptyState
           message="No agreements linked to this client yet"
           action={
-            <SmallActionLink href={`/contract/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}>
-              <Plus className="w-3.5 h-3.5" /> New Agreement
-            </SmallActionLink>
+            readOnly ? undefined : (
+              <SmallActionLink href={`/contract/new?clientId=${clientId}&clientName=${encodeURIComponent(clientName)}`}>
+                <Plus className="w-3.5 h-3.5" /> New Agreement
+              </SmallActionLink>
+            )
           }
         />
       ) : (
@@ -513,13 +523,15 @@ function ClientAgreementsTab({ clientId, clientName }: { clientId: string; clien
                   </td>
                   <td className="px-4 py-3 text-center">
                     <div className="flex items-center justify-center gap-1">
-                      <Link
-                        href={`/contract/${a.id}/edit`}
-                        className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
-                        title="Edit"
-                      >
-                        <Edit className="w-3.5 h-3.5" />
-                      </Link>
+                      {!readOnly && (
+                        <Link
+                          href={`/contract/${a.id}/edit`}
+                          className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
+                          title="Edit"
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </Link>
+                      )}
                       <Link
                         href="/contract"
                         className="p-1.5 rounded-lg text-slate-500 hover:bg-slate-100 hover:text-indigo-600 transition-colors"
@@ -744,8 +756,11 @@ function ClientInvoicesTab({ clientId }: { clientId: string }) {
 // ─── ClientProfile ────────────────────────────────────────────────────────────
 
 export default function ClientProfile({ clientId, initialTab }: Props) {
-  const { currentUser } = usePermissions();
+  const { currentUser, can } = usePermissions();
   const salesExecView = resolveRoleCode(currentUser) === "SALES_EXECUTIVE";
+  // Whole Clients area is read-only when the user lacks clients.edit — every
+  // mutating control below is hidden. See docs/rbac-sales-executive-audit.md.
+  const clientAreaReadOnly = !can("clients", "edit");
   const visibleTabs = useMemo(
     () =>
       salesExecView
@@ -994,7 +1009,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                 <Phone className="w-4 h-4" /><span className="hidden lg:inline">Call</span>
               </a>
             )}
-            {(client.primaryEmail || client.secondaryEmail) && (
+            {!clientAreaReadOnly && (client.primaryEmail || client.secondaryEmail) && (
               <button type="button" onClick={() => setEmailing(true)} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200" title="Send email to client">
                 <Mail className="w-4 h-4" /><span className="hidden lg:inline">Email</span>
               </button>
@@ -1004,12 +1019,14 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                 <MessageCircle className="w-4 h-4" /><span className="hidden lg:inline">WhatsApp</span>
               </a>
             )}
-            <Link
-              href={`/crm/clients/${clientId}/edit`}
-              className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
-            >
-              <Edit className="w-3.5 h-3.5" /> Edit
-            </Link>
+            {!clientAreaReadOnly && (
+              <Link
+                href={`/crm/clients/${clientId}/edit`}
+                className="flex items-center gap-1.5 px-3 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <Edit className="w-3.5 h-3.5" /> Edit
+              </Link>
+            )}
             {/*
             Header quotation and invoice actions are intentionally hidden.
             <Link
@@ -1025,6 +1042,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
               <Receipt className="w-3.5 h-3.5" /> Invoice
             </Link>
             */}
+            {!clientAreaReadOnly && (
             <div className="relative">
               <button type="button" onClick={() => setShowCreateMenu((open) => !open)} aria-expanded={showCreateMenu} className="inline-flex items-center gap-1.5 px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700">
                 <Plus className="w-4 h-4" /> New <ChevronDown className="w-3.5 h-3.5" />
@@ -1038,6 +1056,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                 </div>
               )}
             </div>
+            )}
           </div>
         </div>
         <div className="mt-5 grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -1234,21 +1253,25 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
               {/* Tab 2 - Contacts */}
               {activeTab === "contacts" && (
                 <div className="space-y-3">
-                  <div className="flex justify-end">
-                    <Link
-                      href={`/crm/clients/${clientId}/edit#contacts`}
-                      className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
-                    >
-                      <Plus className="w-3.5 h-3.5" /> Add Contact
-                    </Link>
-                  </div>
+                  {!clientAreaReadOnly && (
+                    <div className="flex justify-end">
+                      <Link
+                        href={`/crm/clients/${clientId}/edit#contacts`}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-medium hover:bg-indigo-700 transition-colors"
+                      >
+                        <Plus className="w-3.5 h-3.5" /> Add Contact
+                      </Link>
+                    </div>
+                  )}
                   {!contacts || contacts.length === 0 ? (
                     <EmptyState
                       message="No contact persons found"
                       action={
-                        <SmallActionLink href={`/crm/clients/${clientId}/edit#contacts`}>
-                          <Plus className="w-3.5 h-3.5" /> Add Contact
-                        </SmallActionLink>
+                        clientAreaReadOnly ? undefined : (
+                          <SmallActionLink href={`/crm/clients/${clientId}/edit#contacts`}>
+                            <Plus className="w-3.5 h-3.5" /> Add Contact
+                          </SmallActionLink>
+                        )
                       }
                     />
                   ) : (
@@ -1326,6 +1349,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                 <ClientQuotationsTab
                   clientId={clientId}
                   clientName={client.companyName || client.contactPersonName || ""}
+                  readOnly={clientAreaReadOnly}
                 />
               )}
 
@@ -1334,6 +1358,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                 <ClientAgreementsTab
                   clientId={clientId}
                   clientName={client.companyName || client.contactPersonName || ""}
+                  readOnly={clientAreaReadOnly}
                 />
               )}
 
@@ -1426,6 +1451,11 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
               {/* Tab 9 - Activity */}
               {activeTab === "activity" && (
                 <div className="space-y-5">
+                  {clientAreaReadOnly ? (
+                    <div className="flex justify-end">
+                      <button type="button" onClick={() => void refreshActivity()} disabled={tabLoading} className="rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-indigo-600 disabled:opacity-50">{tabLoading ? "Refreshing..." : "Refresh"}</button>
+                    </div>
+                  ) : (
                   <form onSubmit={createActivity} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <div><h3 className="text-sm font-bold text-slate-900">Add Client Activity</h3><p className="text-xs text-slate-500">Record a call, meeting, email, note, or follow-up.</p></div>
@@ -1438,6 +1468,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                     </div>
                     {activityError && <p className="mt-3 text-xs font-medium text-red-600">{activityError}</p>}
                   </form>
+                  )}
 
                   {!activity || activity.length === 0 ? (
                     <EmptyState message="No activity found" />

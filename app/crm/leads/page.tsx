@@ -1843,9 +1843,9 @@ export default function LeadsPage() {
                   onCreateHandled={() => setTriggerCreateQuotation(false)}
                   onActivity={(action, desc) => addActivity(selectedLead.id!, action, desc)}
                   onMailActivity={() => refreshLeadActivities(selectedLead.id!)}
-                  onLeadConverted={() => {
-                    setLeads((prev) => prev.filter((lead) => lead.id !== selectedLead.id));
-                    closeLead();
+                  onLeadStageChanged={() => {
+                    void fetchLeads();
+                    if (selectedLead) openLead(selectedLead);
                   }}
                 />
               )}

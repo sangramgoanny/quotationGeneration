@@ -1,13 +1,14 @@
 "use client";
 
 import { usePathname } from "next/navigation";
+import Link from "next/link";
 import Sidebar from "./Sidebar";
 import { ReactNode, useSyncExternalStore } from "react";
 import { getToken, getUser } from "@/utils/token";
 import { Bell } from "lucide-react";
 import { useAuthRbac } from "@/lib/rbac/AuthRbacProvider";
 import { permissionForPath } from "@/lib/rbac/routes";
-import { isPathDeniedForRole } from "@/lib/rbac/roleAccess";
+import { isPathDeniedForRole, resolveRoleCode } from "@/lib/rbac/roleAccess";
 import ProtectedRoute from "@/components/rbac/ProtectedRoute";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { ShieldAlert } from "lucide-react";
@@ -24,6 +25,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/finance/expenses": "Expenses",
   "/projects":         "Projects",
   "/projects/tasks":   "Tasks",
+  "/profile":                             "My Profile",
   "/settings":                             "Settings",
   "/settings/users-access/users":          "Users & Access",
   "/settings/users-access/roles":          "Roles & Permissions",
@@ -44,7 +46,7 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
   const showSidebar = !NO_SIDEBAR_PREFIXES.some((p) => pathname.startsWith(p));
   const token = useSyncExternalStore(subscribeToTokenChanges, getToken, () => null);
   const { loading: permissionsLoading, currentUser } = useAuthRbac();
-  const roleCode = currentUser?.assignedRole?.code ?? null;
+  const roleCode = resolveRoleCode(currentUser);
   const routePermission = permissionForPath(pathname);
   const routeDeniedForRole = isPathDeniedForRole(roleCode, pathname);
 
@@ -80,12 +82,12 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
             <button className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
               <Bell className="w-4 h-4" />
             </button>
-            <div className="flex items-center gap-2 pl-1">
+            <Link href="/profile" title="My Profile" className="flex items-center gap-2 rounded-lg pl-1 pr-1.5 py-1 hover:bg-slate-100 transition">
               <div className="w-7 h-7 bg-indigo-600 rounded-full flex items-center justify-center shrink-0">
                 <span className="text-white text-[11px] font-bold">{initials}</span>
               </div>
               <span className="text-[13px] text-slate-600 font-medium hidden sm:block">{username}</span>
-            </div>
+            </Link>
           </div>
         </header>
 

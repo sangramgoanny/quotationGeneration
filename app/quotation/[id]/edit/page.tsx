@@ -63,11 +63,13 @@ export default function EditQuotationPage() {
   const [errors, setErrors]     = useState<Record<string, string>>({});
   const [saving, setSaving]     = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [locked, setLocked]     = useState(false);
   const [apiError, setApiError] = useState("");
 
   useEffect(() => {
     quotationsApi.get(id)
       .then(q => {
+        if (q.status === "ACCEPTED") { setLocked(true); return; }
         setForm({
           quotationNumber: q.quotationNumber,
           clientId:        q.clientId ?? "",
@@ -98,6 +100,13 @@ export default function EditQuotationPage() {
   if (notFound) return (
     <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-400">
       <p className="text-sm font-medium">Quotation not found.</p>
+      <button onClick={() => router.push("/quotation")} className="text-xs text-indigo-600 hover:underline">← Back to list</button>
+    </div>
+  );
+
+  if (locked) return (
+    <div className="flex flex-col items-center justify-center h-64 gap-3 text-slate-500">
+      <p className="text-sm font-semibold">This quotation has been accepted and can no longer be edited.</p>
       <button onClick={() => router.push("/quotation")} className="text-xs text-indigo-600 hover:underline">← Back to list</button>
     </div>
   );

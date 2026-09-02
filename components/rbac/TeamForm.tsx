@@ -32,11 +32,17 @@ export default function TeamForm({
   onSubmit: (data: TeamFormValue) => void;
 }) {
   const [form, setForm] = useState<TeamFormValue>(initial);
+  const [memberSearch, setMemberSearch] = useState("");
   const field = "mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-indigo-400 focus:ring-2 focus:ring-indigo-100";
 
   const toggleMember = (id: string) => {
     setForm((f) => ({ ...f, memberIds: f.memberIds.includes(id) ? f.memberIds.filter((v) => v !== id) : [...f.memberIds, id] }));
   };
+
+  const query = memberSearch.trim().toLowerCase();
+  const visibleUsers = query
+    ? users.filter((u) => `${u.name ?? ""} ${u.email}`.toLowerCase().includes(query))
+    : users;
 
   return (
     <div className="fixed inset-0 z-[110] flex items-center justify-center bg-slate-950/50 p-4" onClick={onClose}>
@@ -65,12 +71,23 @@ export default function TeamForm({
             </select>
           </label>
           <div>
-            <p className="text-sm font-semibold text-slate-700">Members</p>
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-slate-700">Members</p>
+              {form.memberIds.length > 0 && <span className="text-xs text-slate-400">{form.memberIds.length} selected</span>}
+            </div>
+            <input
+              value={memberSearch}
+              onChange={(e) => setMemberSearch(e.target.value)}
+              placeholder="Search users by name or email"
+              className={field}
+            />
             <div className="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-200 p-2">
               {users.length === 0 ? (
                 <p className="p-2 text-xs text-slate-400">No users available</p>
+              ) : visibleUsers.length === 0 ? (
+                <p className="p-2 text-xs text-slate-400">No users match &ldquo;{memberSearch}&rdquo;</p>
               ) : (
-                users.map((u) => (
+                visibleUsers.map((u) => (
                   <label key={u.id} className="flex items-center gap-2 py-1 text-sm text-slate-700">
                     <input type="checkbox" checked={form.memberIds.includes(u.id)} onChange={() => toggleMember(u.id)} className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600" />
                     {u.name || u.email}

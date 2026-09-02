@@ -342,6 +342,7 @@ export default function LeadProfile({ leadId }: Props) {
         triggerCreate={triggerCreate}
         onCreateHandled={() => setTriggerCreate(false)}
         onMailActivity={reloadLead}
+        onLeadStageChanged={reloadLead}
       />
       {emailing && (
         <SendEmailModal

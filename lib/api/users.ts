@@ -12,6 +12,10 @@ export interface User {
   assignedRole: { id: string; name: string; code: string } | null;
   isActive:  boolean;
   createdAt: string;
+  // Present on GET /api/auth/me (see AuthMe); optional elsewhere.
+  team?:             { id: string; name: string } | null;
+  reportingManager?: { id: string; name: string; email: string } | null;
+  userAccess?:       { department: string | null } | null;
 }
 
 interface Res<T> { success: boolean; data: T }

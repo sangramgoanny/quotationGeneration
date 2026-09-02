@@ -16,9 +16,11 @@ const ROUTES: Array<{ prefix: string; permission: RoutePermission }> = [
   { prefix: "/contract", permission: { module: "agreements", action: "view" } },
   { prefix: "/invoice", permission: { module: "invoices", action: "view" } },
   { prefix: "/receipt", permission: { module: "receipts", action: "view" } },
+  { prefix: "/finance/expenses", permission: { module: "expenses", action: "view" } },
   { prefix: "/projects/tasks", permission: { module: "projectTasks", action: "view" } },
   { prefix: "/projects", permission: { module: "projects", action: "view" } },
   { prefix: "/dashboard", permission: { module: "dashboard", action: "view" } },
+  { prefix: "/reports", permission: { module: "reports", action: "view" } },
 ];
 
 export function permissionForPath(pathname: string): RoutePermission | null {

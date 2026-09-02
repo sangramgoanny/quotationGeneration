@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import Link from "next/link";
 import {
   Edit, FileText, Receipt, Building2, Mail, Phone, Globe,
@@ -35,6 +35,12 @@ import {
 import type { Client, ClientDocument, ContactPerson, DocumentType } from "@/types/client";
 import { SendEmailModal } from "@/components/shared/SendEmailModal";
 import DocumentsPanel from "@/components/shared/DocumentsPanel";
+import { usePermissions } from "@/lib/rbac/usePermissions";
+import { resolveRoleCode } from "@/lib/rbac/roleAccess";
+
+// Tabs a Sales Executive may see on a client — Overview is trimmed to
+// non-sensitive fields, and no finance/contacts/documents/projects.
+const SALES_EXEC_TABS = ["overview", "quotations", "agreements", "activity"] as const;
 
 // ─── Props ────────────────────────────────────────────────────────────────────
 
@@ -738,11 +744,21 @@ function ClientInvoicesTab({ clientId }: { clientId: string }) {
 // ─── ClientProfile ────────────────────────────────────────────────────────────
 
 export default function ClientProfile({ clientId, initialTab }: Props) {
+  const { currentUser } = usePermissions();
+  const salesExecView = resolveRoleCode(currentUser) === "SALES_EXECUTIVE";
+  const visibleTabs = useMemo(
+    () =>
+      salesExecView
+        ? TABS.filter((t) => (SALES_EXEC_TABS as readonly string[]).includes(t.id))
+        : TABS,
+    [salesExecView],
+  );
+
   const [client, setClient] = useState<Client | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() =>
-    TABS.some((tab) => tab.id === initialTab) ? initialTab as TabId : "overview",
+    visibleTabs.some((tab) => tab.id === initialTab) ? (initialTab as TabId) : "overview",
   );
 
   // Lazy tab data
@@ -852,10 +868,10 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
   );
 
   useEffect(() => {
-    if (initialTab && initialTab !== "overview" && TABS.some((tab) => tab.id === initialTab)) {
+    if (initialTab && initialTab !== "overview" && visibleTabs.some((tab) => tab.id === initialTab)) {
       void loadTab(initialTab as TabId);
     }
-  }, [initialTab, loadTab]);
+  }, [initialTab, loadTab, visibleTabs]);
 
   const refreshActivity = useCallback(async () => {
     setTabLoading(true);
@@ -1062,7 +1078,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
       <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
         {/* Tab bar */}
         <div className="flex overflow-x-auto border-b border-slate-200 bg-slate-50 px-2 scrollbar-thin">
-          {TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const Icon = t.icon;
             return (
               <button
@@ -1098,7 +1114,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                     <InfoRow label="Company Size" value={client.companySize} />
                     <InfoRow label="Year Established" value={client.yearEstablished} />
                     <InfoRow label="No. of Employees" value={client.numberOfEmployees} />
-                    <InfoRow label="Annual Revenue" value={client.annualRevenue ? `₹ ${client.annualRevenue}` : undefined} />
+                    {!salesExecView && <InfoRow label="Annual Revenue" value={client.annualRevenue ? `₹ ${client.annualRevenue}` : undefined} />}
                   </InfoCard>
 
                   <InfoCard title="Contact Info">
@@ -1122,6 +1138,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                     />
                   </InfoCard>
 
+                  {!salesExecView && (<>
                   <InfoCard title="Billing Address">
                     {client.billingAddress && (
                       <div className="text-xs text-slate-700 space-y-0.5">
@@ -1210,6 +1227,7 @@ export default function ClientProfile({ clientId, initialTab }: Props) {
                       </div>
                     </InfoCard>
                   )}
+                  </>)}
                 </div>
               )}
 

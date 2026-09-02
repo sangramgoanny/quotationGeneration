@@ -14,6 +14,12 @@ enforced by the NestJS API that `app/api/**/route.ts` proxies to (`BACKEND_URL`)
 | 3 — Sales Exec has no invoice/receipt/outstanding access | ✅ already enforced | `SALES_EXECUTIVE` seed grants `NONE` for `invoices`/`receipts`/`outstanding`; `invoices`/`receipts` controllers carry `@RequirePermission`, and `PermissionsGuard` 403s on `scope: NONE`. |
 | 3 (follow-up) — `expenses` module | ⚠️ open | `src/expenses/expenses.controller.ts` has **no** `@RequirePermission` and there is no `expenses` permission-module key, so it's open to any authenticated user. Needs a catalog key + guard if expenses must be Sales-Exec-restricted. |
 | 4 — Follow-ups scoped to the user, not the lead | ✅ done | `reminders.service.ts` now scopes by involvement (`createdById` OR `assignedUserId`) under the `followups` module key, via new `RbacService.buildAccessWhereAny` / `assertInScopeAny`. Previously it scoped by `client.accountManagerId`, so a Sales Executive saw every follow-up sitting on one of their leads even if a colleague/manager created or owned it. |
+| 5 — Dashboard quotation cards match the Quotation tab | ✅ done | `dashboard.service.quotations()` switched from creator-only scope to `buildAccessWhereAny(['createdById', 'client.accountManagerId'])`. |
+| 6 — Quotation SENT → lead stage `QUOTATION_SENT`, ACCEPTED → `WON` | ✅ done | `quotations.service.syncLeadStageForQuotationStatus()` runs inside `updateStatus` and the auto-SENT-on-email path. One-directional; never converts the lead, never downgrades, never touches an already-converted client. Frontend no longer calls `leadsApi.convert()` on ACCEPTED. |
+| 7 — Accepted quotation is locked | ✅ done | `quotations.service.update()` throws `409 QUOTATION_LOCKED` when `status === 'ACCEPTED'` for every role. Edit button hidden in `LeadQuotationSection` + `QuotationsPage`; `/quotation/[id]/edit` shows a locked notice. |
+| 8 — Reports page for Sales Exec + Manager | ✅ done | New `app/reports/page.tsx` off `GET /api/dashboard/summary` (lead KPIs, stage breakdown, per-member leaderboard). `/reports` registered in `lib/rbac/routes.ts` under `reports` VIEW. |
+| 9 — Read-only user profile | ✅ done | New `app/profile/page.tsx` from `useAuthRbac().currentUser`; `auth.service` `me` now returns `reportingManager` + `department`. Linked from the top-bar avatar. |
+| 10 — Searchable team member picker | ✅ done | `components/rbac/TeamForm.tsx` member list has a name/email filter. |
 
 ## Follow-ups (reminders) visibility
 

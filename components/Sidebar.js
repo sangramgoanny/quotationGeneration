@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter, usePathname } from "next/navigation";
 import { clearToken } from "@/utils/token";
 import { usePermissions } from "@/lib/rbac/usePermissions";
-import { isModuleDeniedForRole, isNavLabelDeniedForRole } from "@/lib/rbac/roleAccess";
+import { isModuleDeniedForRole, isNavLabelDeniedForRole, resolveRoleCode } from "@/lib/rbac/roleAccess";
 import { leadsApi } from "@/lib/api/leads";
 import { quotationsApi } from "@/lib/api/quotations";
 import { remindersApi } from "@/lib/api/reminders";
@@ -85,7 +85,7 @@ const SECTIONS = [
         children: [
           { label: "Invoices", href: "/invoice", icon: Receipt, tone: "blue", moduleId: "invoices" },
           { label: "Receipts", href: "/receipt", icon: CreditCard, tone: "cyan", moduleId: "receipts" },
-          { label: "Expenses", href: "/finance/expenses", icon: DollarSign, tone: "emerald" },
+          { label: "Expenses", href: "/finance/expenses", icon: DollarSign, tone: "emerald", moduleId: "expenses" },
         ],
       },
     ],
@@ -153,7 +153,7 @@ export default function Sidebar() {
   const [open, setOpen] = useState([]);
   const [collapsed, setCollapsed] = useState(false);
   const { canView, currentUser, loading: permissionsLoading } = usePermissions();
-  const roleCode = currentUser?.assignedRole?.code ?? null;
+  const roleCode = resolveRoleCode(currentUser);
   const [counts, setCounts] = useState({});
 
   useEffect(() => {

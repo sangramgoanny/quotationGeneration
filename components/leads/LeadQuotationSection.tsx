@@ -16,7 +16,6 @@ import {
   type QuotationStatus,
 } from "@/lib/api/quotations";
 import { type TimelinePhase, type TimelineUnit } from "@/lib/quotationStore";
-import { leadsApi } from "@/lib/api/leads";
 import { activityApi } from "@/lib/api/activity";
 import { usePermissions } from "@/lib/rbac/usePermissions";
 
@@ -1172,14 +1171,16 @@ function ViewModal({ quotation, onEdit, onClose, onDownload, downloading, onStat
               {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
               Download PDF
             </button>
-            <button
-              onClick={onEdit}
-              title="Edit Quotation"
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-              Edit
-            </button>
+            {quotation.status !== "ACCEPTED" && (
+              <button
+                onClick={onEdit}
+                title="Edit Quotation"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-50 text-xs font-semibold transition-colors"
+              >
+                <Pencil className="w-3.5 h-3.5" />
+                Edit
+              </button>
+            )}
             <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors">
               <X className="w-4 h-4" />
             </button>
@@ -1371,7 +1372,10 @@ interface LeadQuotationSectionProps {
   triggerCreate?: boolean;
   onCreateHandled?: () => void;
   onActivity?: (action: string, description: string) => void;
-  onLeadConverted?: () => void;
+  /** Called after a quotation status change that the backend mirrors onto the
+   *  parent lead's stage (SENT → Quotation Sent, ACCEPTED → Won) so the parent
+   *  can refetch the lead. The lead is NOT auto-converted. */
+  onLeadStageChanged?: () => void;
   /** Called after a quotation email activity is logged so the parent can
    *  refresh its activity/mail feed without waiting for a remount. */
   onMailActivity?: () => void;
@@ -1383,7 +1387,7 @@ export default function LeadQuotationSection({
   triggerCreate,
   onCreateHandled,
   onActivity,
-  onLeadConverted,
+  onLeadStageChanged,
   onMailActivity,
 }: LeadQuotationSectionProps) {
   const router = useRouter();
@@ -1488,13 +1492,11 @@ export default function LeadQuotationSection({
     setUpdatingStatusId(id);
     try {
       await quotationsApi.updateStatus(id, status);
-      if (status === "ACCEPTED") {
-        await leadsApi.convert(leadId);
-      }
       setQuotations((prev) => prev.map((q) => (q.id === id ? { ...q, status } : q)));
       setViewTarget((prev) => (prev && prev.id === id ? { ...prev, status } : prev));
       onActivity?.("Quotation Status Updated", `Quotation status changed to ${status}`);
-      if (status === "ACCEPTED") onLeadConverted?.();
+      // Backend advances the lead stage for SENT / ACCEPTED — let the parent refetch.
+      if (status === "SENT" || status === "ACCEPTED") onLeadStageChanged?.();
     } catch (e) {
       alert(e instanceof Error ? e.message : "Failed to update status");
     } finally {
@@ -1513,6 +1515,10 @@ export default function LeadQuotationSection({
   };
 
   const openEdit = async (q: SavedQuotation) => {
+    if (q.status === "ACCEPTED") {
+      alert("An accepted quotation can no longer be edited.");
+      return;
+    }
     try {
       const full = await ensureContract(q);
       setViewTarget(null);

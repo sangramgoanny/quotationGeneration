@@ -35,6 +35,7 @@ export const PERMISSION_CATALOG: PermissionModuleDef[] = [
   { id: "invoices",    label: "Invoices",    group: "Finance", scoped: true, actions: ["view", "create", "edit", "delete", "approve", "export", "download"] },
   { id: "receipts",    label: "Receipts",    group: "Finance", scoped: true, actions: ["view", "create", "edit", "delete", "export", "download"] },
   { id: "outstanding", label: "Outstanding", group: "Finance", scoped: true, actions: ["view", "export"] },
+  { id: "expenses",    label: "Expenses",    group: "Finance", scoped: true, actions: ["view", "create", "edit", "delete", "export"] },
 
   // ── Project Management ───────────────────────────────────────────────────
   { id: "projects",         label: "Projects",          group: "Project Management", scoped: true, actions: ["view", "create", "edit", "delete", "assign", "export"] },

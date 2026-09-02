@@ -15,7 +15,6 @@ import {
   type QuotationListItem,
   type Quotation,
 } from "@/lib/api/quotations";
-import { leadsApi } from "@/lib/api/leads";
 import { activityApi } from "@/lib/api/activity";
 import { usePermissions } from "@/lib/rbac/usePermissions";
 
@@ -1340,11 +1339,9 @@ export default function QuotationsPage() {
   const handleStatusChange = async (id: string, status: QuotationStatus) => {
     setUpdatingStatusId(id);
     try {
+      // The backend mirrors SENT → lead stage "Quotation Sent" and
+      // ACCEPTED → "Won" automatically; the lead is not auto-converted.
       await quotationsApi.updateStatus(id, status);
-      const quotation = quotations.find(q => q.id === id);
-      if (status === "ACCEPTED" && quotation?.clientId) {
-        await leadsApi.convert(quotation.clientId);
-      }
       setQuotations(prev => prev.map(q => (q.id === id ? { ...q, status } : q)));
       setAllQuotations(prev => prev.map(q => (q.id === id ? { ...q, status } : q)));
       setSelected(prev => (prev && prev.id === id ? { ...prev, status } : prev));
@@ -1478,10 +1475,12 @@ export default function QuotationsPage() {
                             className="p-1.5 rounded-lg text-indigo-600 hover:bg-indigo-50 transition-colors disabled:opacity-40">
                             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}
                           </button>
-                          <button title="Edit" onClick={() => router.push(`/quotation/${q.id}/edit`)}
-                            className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors">
-                            <Pencil className="w-4 h-4" />
-                          </button>
+                          {q.status !== "ACCEPTED" && (
+                            <button title="Edit" onClick={() => router.push(`/quotation/${q.id}/edit`)}
+                              className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors">
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          )}
                           <button title="Download Quotation PDF" disabled={busy} onClick={() => handleDownload(q.id)}
                             className="p-1.5 rounded-lg text-emerald-600 hover:bg-emerald-50 transition-colors disabled:opacity-40">
                             <Download className="w-4 h-4" />

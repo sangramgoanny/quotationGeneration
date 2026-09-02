@@ -30,6 +30,7 @@ const PUBLIC_PREFIXES = ["/login", "/admin/login"];
 // canView("followUps") resolves instead of silently returning false.
 const BACKEND_MODULE_ALIASES: Record<string, string> = {
   followups: "followUps",
+  project_tasks: "projectTasks",
 };
 
 function normalizePermissionKeys(

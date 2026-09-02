@@ -84,14 +84,21 @@ function StatCard({
   value,
   icon: Icon,
   color,
+  onClick,
+  active = false,
 }: {
   label: string;
   value: number;
   icon: React.ComponentType<{ className?: string }>;
   color: string;
+  onClick?: () => void;
+  active?: boolean;
 }) {
-  return (
-    <div className="bg-white border border-slate-200 rounded-xl p-4 flex items-center gap-3">
+  const base = `bg-white border rounded-xl p-4 flex items-center gap-3 w-full text-left transition-colors ${
+    active ? "border-indigo-400 ring-2 ring-indigo-100" : "border-slate-200"
+  }`;
+  const inner = (
+    <>
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${color}`}>
         <Icon className="w-5 h-5" />
       </div>
@@ -99,7 +106,14 @@ function StatCard({
         <p className="text-2xl font-bold text-slate-900">{value}</p>
         <p className="text-xs text-slate-500">{label}</p>
       </div>
-    </div>
+    </>
+  );
+  return onClick ? (
+    <button type="button" onClick={onClick} className={`${base} hover:border-indigo-300`}>
+      {inner}
+    </button>
+  ) : (
+    <div className={base}>{inner}</div>
   );
 }
 
@@ -265,6 +279,8 @@ export default function UsersPage() {
 
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
+  // Quick filter driven by the stat cards above the table.
+  const [quickFilter, setQuickFilter] = useState<"" | "active" | "inactive" | "admins">("");
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -290,19 +306,31 @@ export default function UsersPage() {
 
   useEffect(() => { fetchUsers(); }, [fetchUsers]);
 
+  const isAdminUser = (u: User) =>
+    u.assignedRole?.code === "ADMIN" ||
+    u.assignedRole?.code === "SUPER_ADMIN" ||
+    (!u.assignedRole && u.role === "ADMIN");
+
   const displayedUsers = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (!q) return users;
-    return users.filter((u) => (
-      (!roleFilter || u.roleId === roleFilter) &&
-      (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
-    ));
-  }, [users, search, roleFilter]);
+    return users.filter((u) => {
+      if (roleFilter && u.roleId !== roleFilter) return false;
+      if (quickFilter === "active" && !u.isActive) return false;
+      if (quickFilter === "inactive" && u.isActive) return false;
+      if (quickFilter === "admins" && !isAdminUser(u)) return false;
+      if (q && !(u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))) return false;
+      return true;
+    });
+  }, [users, search, roleFilter, quickFilter]);
 
   const total    = users.length;
   const active   = users.filter((u) => u.isActive).length;
   const inactive = users.filter((u) => !u.isActive).length;
-  const admins   = users.filter((u) => u.assignedRole?.code === "ADMIN" || u.assignedRole?.code === "SUPER_ADMIN" || (!u.assignedRole && u.role === "ADMIN")).length;
+  const admins   = users.filter(isAdminUser).length;
+
+  const noFilters = !search && !roleFilter && !quickFilter;
+  const toggleQuick = (key: "active" | "inactive" | "admins") =>
+    setQuickFilter((prev) => (prev === key ? "" : key));
 
   const handleCreate = async (form: UserFormState) => {
     setSubmitting(true);
@@ -372,10 +400,18 @@ export default function UsersPage() {
 
       {/* ── Stats ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard label="Total Users" value={total}    icon={UsersIcon}   color="bg-indigo-50 text-indigo-600" />
-        <StatCard label="Active"      value={active}   icon={UserCheck}   color="bg-green-50 text-green-600" />
-        <StatCard label="Inactive"    value={inactive}  icon={UserX}       color="bg-slate-100 text-slate-600" />
-        <StatCard label="Admins"      value={admins}    icon={ShieldCheck} color="bg-purple-50 text-purple-600" />
+        <StatCard label="Total Users" value={total}    icon={UsersIcon}   color="bg-indigo-50 text-indigo-600"
+          active={noFilters}
+          onClick={() => { setQuickFilter(""); setRoleFilter(""); setSearch(""); }} />
+        <StatCard label="Active"      value={active}   icon={UserCheck}   color="bg-green-50 text-green-600"
+          active={quickFilter === "active"}
+          onClick={() => toggleQuick("active")} />
+        <StatCard label="Inactive"    value={inactive}  icon={UserX}       color="bg-slate-100 text-slate-600"
+          active={quickFilter === "inactive"}
+          onClick={() => toggleQuick("inactive")} />
+        <StatCard label="Admins"      value={admins}    icon={ShieldCheck} color="bg-purple-50 text-purple-600"
+          active={quickFilter === "admins"}
+          onClick={() => toggleQuick("admins")} />
       </div>
 
       {/* ── Filters ── */}

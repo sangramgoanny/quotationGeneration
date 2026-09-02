@@ -1,6 +1,6 @@
 import type { NextRequest } from "next/server";
 
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:3000";
+const BACKEND_URL = process.env.BACKEND_URL ?? "https://api.goanny.in";
 
 export type AuthorizeResult = { ok: true; uploadedBy: string } | { ok: false; status: number };
 

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:3000";
+const BACKEND_URL = process.env.BACKEND_URL ?? "https://api.goanny.in";
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export async function GET(request: NextRequest) {

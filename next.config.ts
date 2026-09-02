@@ -1,6 +1,6 @@
 import type { NextConfig } from "next";
 
-const BACKEND = process.env.BACKEND_URL ?? "http://localhost:3000";
+const BACKEND = process.env.BACKEND_URL ?? "https://api.goanny.in";
 
 const nextConfig: NextConfig = {
   experimental: {

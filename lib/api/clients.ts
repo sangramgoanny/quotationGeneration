@@ -1,5 +1,4 @@
 import { authHeader } from "@/utils/token";
-import { API_BASE_URL as BASE } from "@/lib/api/config";
 import { emptyClient, type Client, type ContactPerson, type ClientDocument } from "@/types/client";
 import { request } from "./request";
 
@@ -328,8 +327,13 @@ export const clientsApi = {
 
   // ── Documents ─────────────────────────────────────────────────────────────
 
+  // Documents are handled by the Next.js route handlers (S3 upload lives there,
+  // not in the NestJS backend), so these must always be same-origin regardless
+  // of NEXT_PUBLIC_API_URL.
   async getDocuments(id: string): Promise<ClientDocument[]> {
-    const r = await request<{ success: boolean; data: ClientDocument[] }>(`/api/clients/${id}/documents`);
+    const r = await request<{ success: boolean; data: ClientDocument[] }>(
+      `/api/clients/${id}/documents`, {}, { base: "" },
+    );
     return r.data;
   },
 
@@ -337,7 +341,7 @@ export const clientsApi = {
     const fd = new FormData();
     files.forEach((file) => fd.append("files", file));
     fd.append("documentType", documentType);
-    const res = await fetch(`${BASE}/api/clients/${id}/documents`, {
+    const res = await fetch(`/api/clients/${id}/documents`, {
       method: "POST",
       headers: authHeader(),
       body: fd,
@@ -351,7 +355,7 @@ export const clientsApi = {
   },
 
   deleteDocument(id: string, docId: string): Promise<void> {
-    return request<void>(`/api/clients/${id}/documents/${docId}`, { method: "DELETE" });
+    return request<void>(`/api/clients/${id}/documents/${docId}`, { method: "DELETE" }, { base: "" });
   },
 
   // ── Linked record shortcuts ───────────────────────────────────────────────

@@ -1,5 +1,4 @@
 import { authHeader } from "@/utils/token";
-import { API_BASE_URL as BASE } from "@/lib/api/config";
 import { request } from "@/lib/api/request";
 import { emptyClient, type Client, type ClientDocument } from "@/types/client";
 import type { ClientFilters, ClientListResponse } from "@/lib/api/clients";
@@ -114,8 +113,13 @@ export const leadsApi = {
 
   // ── Documents ─────────────────────────────────────────────────────────────
 
+  // Documents are handled by the Next.js route handlers (S3 upload lives there,
+  // not in the NestJS backend), so these must always be same-origin regardless
+  // of NEXT_PUBLIC_API_URL.
   async getDocuments(id: string): Promise<ClientDocument[]> {
-    const r = await request<{ success: boolean; data: ClientDocument[] }>(`/api/leads/${id}/documents`);
+    const r = await request<{ success: boolean; data: ClientDocument[] }>(
+      `/api/leads/${id}/documents`, {}, { base: "" },
+    );
     return r.data;
   },
 
@@ -123,7 +127,7 @@ export const leadsApi = {
     const fd = new FormData();
     files.forEach((file) => fd.append("files", file));
     fd.append("documentType", documentType);
-    const res = await fetch(`${BASE}/api/leads/${id}/documents`, {
+    const res = await fetch(`/api/leads/${id}/documents`, {
       method: "POST",
       headers: authHeader(),
       body: fd,
@@ -137,7 +141,7 @@ export const leadsApi = {
   },
 
   deleteDocument(id: string, docId: string): Promise<void> {
-    return request<void>(`/api/leads/${id}/documents/${docId}`, { method: "DELETE" });
+    return request<void>(`/api/leads/${id}/documents/${docId}`, { method: "DELETE" }, { base: "" });
   },
 
   async pipelineSummary(): Promise<{

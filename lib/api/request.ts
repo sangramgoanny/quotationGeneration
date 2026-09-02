@@ -18,8 +18,15 @@ export class ApiRequestError extends Error {
   }
 }
 
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const url = `${BASE}${path}`;
+export async function request<T>(
+  path: string,
+  options: RequestInit = {},
+  config: { base?: string } = {},
+): Promise<T> {
+  // `base: ""` forces a same-origin call — used for endpoints that only exist
+  // as Next.js route handlers (e.g. document upload does S3 here, the NestJS
+  // backend has no such route), so they must not be redirected to NEXT_PUBLIC_API_URL.
+  const url = `${config.base ?? BASE}${path}`;
   const res = await fetch(url, {
     ...options,
     credentials: "include",

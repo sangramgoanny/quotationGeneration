@@ -3,15 +3,16 @@
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import Sidebar from "./Sidebar";
-import { ReactNode, useSyncExternalStore } from "react";
+import { ReactNode, useState, useSyncExternalStore } from "react";
 import { getToken, getUser } from "@/utils/token";
-import { Bell } from "lucide-react";
+import { Bell, MessageSquare } from "lucide-react";
 import { useAuthRbac } from "@/lib/rbac/AuthRbacProvider";
 import { permissionForPath } from "@/lib/rbac/routes";
 import { isPathDeniedForRole, resolveRoleCode } from "@/lib/rbac/roleAccess";
 import ProtectedRoute from "@/components/rbac/ProtectedRoute";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import { ShieldAlert } from "lucide-react";
+import { ChatDrawer } from "@/components/chat/ChatDrawer";
 
 const PAGE_TITLES: Record<string, string> = {
   "/dashboard":        "Dashboard",
@@ -25,6 +26,7 @@ const PAGE_TITLES: Record<string, string> = {
   "/finance/expenses": "Expenses",
   "/projects":         "Projects",
   "/projects/tasks":   "Tasks",
+  "/chat":             "Chat",
   "/profile":                             "My Profile",
   "/settings":                             "Settings",
   "/settings/users-access/users":          "Users & Access",
@@ -45,6 +47,7 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
   const pathname = usePathname();
   const showSidebar = !NO_SIDEBAR_PREFIXES.some((p) => pathname.startsWith(p));
   const token = useSyncExternalStore(subscribeToTokenChanges, getToken, () => null);
+  const [chatOpen, setChatOpen] = useState(false);
   const { loading: permissionsLoading, currentUser } = useAuthRbac();
   const roleCode = resolveRoleCode(currentUser);
   const routePermission = permissionForPath(pathname);
@@ -79,6 +82,19 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
             <h1 className="text-[15px] font-semibold text-slate-800">{title}</h1>
           )}
           <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setChatOpen((v) => !v)}
+              title="Chat"
+              aria-pressed={chatOpen}
+              className={`p-1.5 rounded-lg transition ${
+                chatOpen
+                  ? "bg-[#0070B8]/10 text-[#0070B8]"
+                  : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+              }`}
+            >
+              <MessageSquare className="w-4 h-4" />
+            </button>
             <button className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition">
               <Bell className="w-4 h-4" />
             </button>
@@ -104,6 +120,8 @@ export default function ConditionalLayout({ children }: { children: ReactNode })
           ) : children}
         </main>
       </div>
+
+      <ChatDrawer open={chatOpen} onClose={() => setChatOpen(false)} />
     </div>
   );
 }

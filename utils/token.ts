@@ -1,4 +1,9 @@
 const TOKEN_KEY = "admin_token";
+// Mirror of goanny-chat's token-store keys — signing out of the ERP must
+// invalidate the child chat session so the iframe re-authenticates on next open.
+const CHAT_TOKEN_KEY = "goanny.chat.token";
+const CHAT_USER_KEY = "goanny.chat.user";
+const CHAT_EXPIRY_KEY = "goanny.chat.expiresAt";
 
 export function saveToken(token: string) {
   localStorage.setItem(TOKEN_KEY, token);
@@ -12,6 +17,9 @@ export function clearToken() {
   localStorage.removeItem(TOKEN_KEY);
   document.cookie = `${TOKEN_KEY}=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
   document.cookie = `auth_token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT`;
+  localStorage.removeItem(CHAT_TOKEN_KEY);
+  localStorage.removeItem(CHAT_USER_KEY);
+  localStorage.removeItem(CHAT_EXPIRY_KEY);
 }
 
 export function getToken(): string | null {

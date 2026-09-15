@@ -31,6 +31,7 @@ import {
   BarChart3,
   Activity,
   Clock3,
+  MessageSquare,
 } from "lucide-react";
 
 const SECTIONS = [
@@ -38,6 +39,7 @@ const SECTIONS = [
     label: "Workspace",
     items: [
       { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard, tone: "blue", moduleId: "dashboard" },
+      { label: "Chat", href: "/chat", icon: MessageSquare, tone: "cyan" },
       { label: "AI Center", href: "/ai-center", icon: Sparkles, tone: "violet", badge: "AI" },
       { label: "Reports", href: "/reports", icon: BarChart3, tone: "cyan", moduleId: "reports" },
     ],
